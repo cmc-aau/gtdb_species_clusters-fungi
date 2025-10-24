@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+# Run the gsc_fungi Python package.
+
+# Resolve the script's directory (works even if called via symlink)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Run the Python module, forwarding all arguments
+python3 "$SCRIPT_DIR/../src/gsc_fungi" "$@"

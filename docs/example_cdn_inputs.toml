@@ -1,0 +1,25 @@
+release = "r232"
+root_dir = "/projects/PC/GTDB/gtdb_fungal/metadata/release232/representatives/sp_clusters"
+
+[data_files]
+# file with path to genomes in current GTDB release
+cur_genome_path_file = "gtdb_r232_genome_paths.tsv.gz"
+
+# file with NCBI metadata for GenBank genome assemblies
+ncbi_assembly_summary_genbank_file = "../../ncbi/taxonomy/assembly_summary_fungi_genbank.txt"
+
+# file with NCBI taxonomy for all ranks and subranks
+ncbi_taxonomy_file = "../../ncbi/taxonomy/standardised_taxonomy_subranks/ncbi_r232_standardized.tsv"
+
+# file with BUSCO quality estimates for all genomes
+busco_file = "../busco/busco.tsv"
+
+[nomenclature_files]
+mycobank_file = "../../mycobank/MBList.tsv.gz"
+mycobank_sanctioned_names_persoon = "../../../../nomenclature/Sanctioned_names_Fries-Persoon.tsv"
+mycobank_sanctioned_names_ef = "../../../../nomenclature/Sanctioned_names_Fries_EF.tsv"
+
+[output_dirs]
+cdn_qc_genomes = "1_qc_genomes"
+cdn_select_sp_reps = "2_select_sp_reps"
+cdn_sp_clusters = "3_sp_clusters"
