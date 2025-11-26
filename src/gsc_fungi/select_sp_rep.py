@@ -27,7 +27,7 @@ from gtdblib.util.shell.execute import check_dependencies
 from gsc_fungi.genome import GenomeMetadata
 from gsc_fungi.genome_utils import read_genome_path
 from gsc_fungi.ncbi import parse_gid_to_ncbi_sp, MetadataNCBI, NCBI_TYPE_SPECIES, NCBI_PROXYTYPE, NCBI_TYPE_SUBSP, NCBI_EXCLUDED_AS_TYPE, REFSEQ_CATEGORIES
-from gsc_fungi.skani import skani as Skani
+from gsc_fungi.skani import Skani
 
 
 # Species with multiple NCBI representative / reference genomes

@@ -24,7 +24,7 @@ from gtdblib.util.shell.gtdbshutil import check_file_exists, make_sure_path_exis
 
 from gsc_fungi.qc_genomes import QcGenomes, QcCriteria
 from gsc_fungi.select_sp_rep import SelectSpeciesRepresentative
-from gsc_fungi.gtdb_species_clusters import SpeciesClusters
+from gsc_fungi.species_clusters import SpeciesClusters
 
 from gsc_fungi.taxa_by_rank import TaxaByRank
 from gsc_fungi.plots.plot_genome_stats import PlotGenomeStats
@@ -67,13 +67,14 @@ class OptionsParser():
             self.log.error(f"Unknown argument: {argument}")
             sys.exit(-1)
 
-    def qc_genomes(self, args, out_dir: str) -> None:
+    def qc_genomes(self, args) -> None:
         """Quality check genomes."""
 
         check_file_exists(args.input_params_file)
         params = parse_toml_file(args.input_params_file)
 
-        #***check_file_exists(self.args_abs_path(params, 'busco_file'))
+        check_file_exists(self.args_abs_path(params, 'genome_metadata_file'))
+        check_file_exists(self.args_abs_path(params, 'busco_file'))
         check_file_exists(self.args_abs_path(params, 'ncbi_assembly_summary_genbank_file'))
         check_file_exists(self.args_abs_path(params, 'ncbi_taxonomy_file'))
 
@@ -90,10 +91,11 @@ class OptionsParser():
             args.max_ambiguous_perc)
 
         p = QcGenomes(out_dir)
-        p.run(self.args_abs_path(params, 'busco_file'),
-              self.args_abs_path(params, 'ncbi_assembly_summary_genbank_file'),
-              self.args_abs_path(params, 'ncbi_taxonomy_file'),
-              qc_criteria)
+        p.run(self.args_abs_path(params, 'genome_metadata_file'),
+                self.args_abs_path(params, 'busco_file'),
+                self.args_abs_path(params, 'ncbi_assembly_summary_genbank_file'),
+                self.args_abs_path(params, 'ncbi_taxonomy_file'),
+                qc_criteria)
 
     def cdn_select_sp_reps(self, args) -> None:
         """Select species representative genomes."""
@@ -128,7 +130,7 @@ class OptionsParser():
         qc_pass_file = os.path.join(qc_dir, 'qc_passed.tsv')
 
         select_sp_reps_dir = self.args_abs_path(params, 'cdn_select_sp_reps')
-        sp_rep_fle = os.path.join(select_sp_reps_dir, 'sp_reps.tsv')
+        sp_rep_file = os.path.join(select_sp_reps_dir, 'sp_reps.tsv')
 
         check_file_exists(self.args_abs_path(params, 'ncbi_taxonomy_file'))
         check_file_exists(self.args_abs_path(params, 'cur_genome_path_file'))
@@ -142,7 +144,7 @@ class OptionsParser():
 
         p = SpeciesClusters(out_dir)
         p.run(qc_pass_file,
-                sp_rep_fle
+                sp_rep_file,
                 self.args_abs_path(params, 'ncbi_taxonomy_file'),
                 self.args_abs_path(params, 'cur_genome_path_file'),
                 self.args_abs_path(params, 'mycobank_file'),

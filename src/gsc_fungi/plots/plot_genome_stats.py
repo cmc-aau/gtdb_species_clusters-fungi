@@ -3,10 +3,7 @@ import os
 import logging
 from pathlib import PurePath
 from collections import namedtuple
-{
-  "r.rterm.linux": "${userHome}/.conda/envs/myproject/bin/R",
-  "python.defaultInterpreterPath": "${userHome}/.conda/envs/myproject/bin/python"
-}
+from dataclasses import dataclass
 from typing import Dict, List
 
 from numpy import (median as np_median,

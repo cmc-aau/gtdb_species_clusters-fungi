@@ -26,7 +26,6 @@ class MetadataNCBI:
     refseq_category: str
     excluded_from_refseq: List[str]
     assem_level: str
-    ambiguous_base_perc: float
 
 
 # Criteria for excluding or retaining genomes based on NCBI metadata
@@ -61,6 +60,10 @@ def parse_gid_to_ncbi_sp(ncbi_taxonomy_file: str) -> Dict[str, str]:
             tokens = line.strip().split('\t')
 
             gid = tokens[0]
+            if gid.startswith('GCF_'):
+                # GTDB Fungi DB is build strictly from genomes in GenBank
+                continue
+
             sp = tokens[1].split(';')[-1]
             assert sp.startswith('s__')
             gid_to_sp[gid] = sp

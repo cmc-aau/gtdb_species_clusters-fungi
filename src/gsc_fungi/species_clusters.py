@@ -25,7 +25,7 @@ from gtdblib.util.shell.execute import check_dependencies
 
 from gsc_fungi import defaults as Defaults
 from gsc_fungi.genome_utils import read_genome_path
-from gsc_fungi.skani import skani as Skani
+from gsc_fungi.skani import Skani
 from gsc_fungi import mycobank as Mycobank
 from gsc_fungi.ncbi import parse_gid_to_ncbi_sp
 
@@ -76,7 +76,7 @@ class SpeciesClusters():
 
         return ani_af
 
-    def normalize_species_name(self, sp_name:: str) -> str:
+    def normalize_species_name(self, sp_name: str) -> str:
         """Determine normalized species name.
         
         Currently this only removed brackets ([, ]) that
