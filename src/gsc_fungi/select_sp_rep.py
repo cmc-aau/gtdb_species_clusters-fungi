@@ -20,6 +20,7 @@ import gzip
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
+from itertools import combinations
 from typing import Dict, Set, Tuple
 
 from gtdblib.util.shell.execute import check_dependencies
@@ -116,6 +117,7 @@ class SelectSpeciesRepresentative():
             comp_idx = header.index('completeness')
             cont_idx = header.index('contamination')
             qual_idx = header.index('quality')
+            genome_size_idx = header.index('genome_size')
             contig_count_idx = header.index('contig_count')
             n50_contigs_idx = header.index('n50_contigs')
             ambig_perc_idx = header.index('ambiguous_base_perc')
@@ -130,13 +132,14 @@ class SelectSpeciesRepresentative():
                 gid = tokens[0]
                 
                 genome_metadata[gid] = GenomeMetadata(
-                    float(tokens[assem_score_idx]),
                     float(tokens[comp_idx]),
                     float(tokens[cont_idx]),
                     float(tokens[qual_idx]),
+                    int(tokens[genome_size_idx]),
                     int(tokens[contig_count_idx]),
                     int(tokens[n50_contigs_idx]),
                     float(tokens[ambig_perc_idx]),
+                    float(tokens[assem_score_idx]),
                     MetadataNCBI(
                         tokens[ncbi_type_material_idx],
                         tokens[ncbi_refseq_cat_idx],
@@ -206,21 +209,22 @@ class SelectSpeciesRepresentative():
                 elif type_material in NCBI_TYPE_SUBSP:
                     subsp_type_genomes[sp].append(gid)
                     
-        return sp_type_genomes, subsp_type_genomes, sp_rep_genomes
+        return sp_type_genomes, subsp_type_genomes, sp_rep_genomes, gid_to_type_material, gid_to_rs_category
 
-    def determine_best_assembly(gids: List[str], genome_metadata: Dict[str, GenomeMetadata]) -> str:
+    def determine_best_assembly(self, gids: List[str], genome_metadata: Dict[str, GenomeMetadata]) -> str:
         """Determine genome with highest assembly score."""
         
         gtdb_rid = None
         highest_score = -1e9
         for gid in gids:
-            if metadata[gid].assembly_score > highest_score:
-                highest_score = metadata[gid].assembly_score
+            if genome_metadata[gid].assembly_score > highest_score:
+                highest_score = genome_metadata[gid].assembly_score
                 gtdb_rid = gid
 
         return gtdb_rid
 
-    def sel_sp_rep_from_type(self, 
+    def sel_sp_rep_from_type(self,
+                                species: str, 
                                 genome_metadata: Dict[str, GenomeMetadata], 
                                 sp_type_genomes: Dict[str, List[str]],
                                 subsp_type_genomes: Dict[str, List[str]],
@@ -233,17 +237,18 @@ class SelectSpeciesRepresentative():
 
         stats.sp_has_type_or_rep_genome += 1
 
-        if sp not in sp_rep_genomes:
+        if species not in sp_rep_genomes:
             stats.sp_type_only += 1
 
-        if len(sp_type_genomes[sp]) == 1:
+        anis = {}
+        if len(sp_type_genomes[species]) == 1:
             # select the only type strain of species genome as the GTDB representative
             stats.single_sp_type_genome += 1
-            gtdb_rid = sp_type_genomes[sp][0]
-        elif len(sp_type_genomes[sp]) > 1:
+            gtdb_rid = sp_type_genomes[species][0]
+        elif len(sp_type_genomes[species]) > 1:
             stats.multi_sp_type_genomes += 1
 
-            rep_inter = set(sp_type_genomes.get(sp, [])).intersection(sp_rep_genomes.get(sp, []))
+            rep_inter = set(sp_type_genomes.get(species, [])).intersection(sp_rep_genomes.get(species, []))
             if len(rep_inter) > 0:
                 # select the type strain genome that is also the NCBI representative as the GTDB representative
                 assert len(rep_inter) == 1
@@ -252,23 +257,23 @@ class SelectSpeciesRepresentative():
             else:
                 # this is the most complicated case since we have multiple genomes that are assembled
                 # from the type strain of the species and none of these genomes are the NCBI representative genome
-                self.log.info(f' - {sp} has {len(sp_type_genomes[sp]):,} type species genomes and cannot be resolved with NCBI representative genome information')
+                self.log.info(f' - {species} has {len(sp_type_genomes[species]):,} type species genomes and cannot be resolved with NCBI representative genome information')
 
                 # determine ANI between genomes and select highest quality genome assembly
                 # if all genomes are highly similar to each other
-                similar_genomes, anis = self.check_pairwise_ani_99(sp_type_genomes[sp], genome_files)
+                similar_genomes, anis = self.check_pairwise_ani_99(sp_type_genomes[species], genome_files)
                 if similar_genomes:
                     stats.multi_sp_type_similar_genomes += 1
-                    gtdb_rid = self.determine_best_assembly(sp_type_genomes[sp], genome_metadata)
+                    gtdb_rid = self.determine_best_assembly(sp_type_genomes[species], genome_metadata)
 
-        elif len(subsp_type_genomes[sp]) == 1:
+        elif len(subsp_type_genomes[species]) == 1:
             # select the only type strain of subspecies genome as the GTDB representative
             stats.single_subsp_type_genome += 1
-            gtdb_rid = subsp_type_genomes[sp][0]
-        elif len(subsp_type_genomes[sp]) > 1:
+            gtdb_rid = subsp_type_genomes[species][0]
+        elif len(subsp_type_genomes[species]) > 1:
             stats.multi_subsp_type_genomes += 1
 
-            rep_inter = set(subsp_type_genomes.get(sp, [])).intersection(sp_rep_genomes.get(sp, []))
+            rep_inter = set(subsp_type_genomes.get(species, [])).intersection(sp_rep_genomes.get(species, []))
             if len(rep_inter) > 0:
                 # select the type strain of subspecies genome that is also the NCBI representative as the GTDB representative
                 assert len(rep_inter) == 1
@@ -277,31 +282,34 @@ class SelectSpeciesRepresentative():
             else:
                 # this is the most complicated case since we have multiple genomes that are assembled
                 # from the type strain of the subspecies and none of these genomes are the NCBI representative genome
-                self.log.info(f' - {sp} has {len(subsp_type_genomes[sp]):,} type subspecies genomes and cannot be resolved with NCBI representative genome information')
+                self.log.info(f' - {species} has {len(subsp_type_genomes[species]):,} type subspecies genomes and cannot be resolved with NCBI representative genome information')
 
                 # determine ANI between genomes and select highest quality genome assembly
                 # if all genomes are highly similar to each other
-                similar_genomes, anis = check_pairwise_ani_99(subsp_type_genomes[sp], genome_files)
+                similar_genomes, anis = self.check_pairwise_ani_99(subsp_type_genomes[species], genome_files)
                 if similar_genomes:
                     stats.multi_subsp_type_similar_genomes += 1
-                    gtdb_rid = self.determine_best_assembly(subsp_type_genomes[sp], genome_metadata)
-        elif len(sp_rep_genomes[sp]) >= 1:
+                    gtdb_rid = self.determine_best_assembly(subsp_type_genomes[species], genome_metadata)
+        elif len(sp_rep_genomes[species]) >= 1:
             # select the NCBI representative genome as the GTDB representative
-            assert len(sp_rep_genomes[sp]) == 1
+            assert len(sp_rep_genomes[species]) == 1
             stats.sp_rep_only += 1
-            gtdb_rid = sp_rep_genomes[sp][0]
+            gtdb_rid = sp_rep_genomes[species][0]
         else:
             self.log.error('This should never occur as the above cases should be exhaustive.')
             sys.exit(1)
 
-        return gtdb_rid
+        return gtdb_rid, anis
 
     def select_sp_representative_genome(self,
                                         genome_metadata: Dict[str, GenomeMetadata], 
+                                        ncbi_sp_to_gids: Dict[str, Set[str]],
                                         sp_type_genomes: Dict[str, List[str]],
                                         subsp_type_genomes: Dict[str, List[str]],
                                         sp_rep_genomes: Dict[str, List[str]],
-                                        genome_files: Dict[str, str]):
+                                        gid_to_type_material: Dict[str, str],
+                                        gid_to_rs_category: Dict[str, str],
+                                        genome_files: Dict[str, str]) -> RepresentativeSelectionStats:
         """Select representative genome for each NCBI species."""
 
         sp_rep_out_file = os.path.join(self.out_dir, 'sp_reps.tsv')
@@ -319,7 +327,8 @@ class SelectSpeciesRepresentative():
                 continue
 
             if sp in sp_type_genomes or sp in subsp_type_genomes or sp in sp_rep_genomes:
-                gtdb_rid = self.sel_sp_rep_from_type(genome_metadata, 
+                gtdb_rid, anis = self.sel_sp_rep_from_type(sp,
+                                                        genome_metadata, 
                                                         sp_type_genomes,
                                                         subsp_type_genomes,
                                                         sp_rep_genomes,
@@ -355,9 +364,9 @@ class SelectSpeciesRepresentative():
                             gid in sp_type_genomes[sp],
                             gid_to_type_material[gid],
                             gid_to_rs_category[gid],
-                            metadata[gid].assembly_score,
+                            genome_metadata[gid].assembly_score,
                             dict(anis),
-                            '; '.join(metadata[gid].ncbi.excluded_from_refseq),
+                            '; '.join(genome_metadata[gid].ncbi.excluded_from_refseq),
                         ))
 
                         fout.write('{}\t{}\t{}\t{}\t{}\t{}\t{:.2f}\t{}\n'.format(
@@ -367,17 +376,17 @@ class SelectSpeciesRepresentative():
                             gid in sp_type_genomes[sp],
                             gid_to_type_material[gid],
                             gid_to_rs_category[gid],
-                            metadata[gid].assembly_score,
-                            '; '.join(metadata[gid].ncbi.excluded_from_refseq),
+                            genome_metadata[gid].assembly_score,
+                            '; '.join(genome_metadata[gid].ncbi.excluded_from_refseq),
                         ))
             else:
                 # select genome with highest quality assembly to be the
                 # representative genome as there is no type material or
                 # NCBI representative genomes for this species
                 if len(gids) == 1:
-                    sp_no_type_single += 1
+                    stats.sp_no_type_single += 1
 
-                sp_no_type_genome += 1
+                stats.sp_no_type_genome += 1
 
                 gtdb_rid = self.determine_best_assembly(gids, genome_metadata)
 
@@ -389,8 +398,8 @@ class SelectSpeciesRepresentative():
                         gid in sp_type_genomes[sp],
                         'na',
                         'na',
-                        metadata[gid].assembly_score,
-                        '; '.join(metadata[gid].ncbi.excluded_from_refseq),
+                        genome_metadata[gid].assembly_score,
+                        '; '.join(genome_metadata[gid].ncbi.excluded_from_refseq),
                     ))
 
         fout.close()
@@ -405,31 +414,39 @@ class SelectSpeciesRepresentative():
             genome_path_file: str) -> None:
         """Select representative genome for each NCBI fungal species."""
 
-        # read path to genomic FASTA files
-        self.log.info('Reading path to genomic FASTA files:')
-        genome_files = read_genome_path(genome_path_file)
-        self.log.info(f' - read path for {len(genome_files):,} genomes')
-
         # get metadata for genomes passing QC criteria
         self.log.info('Reading metadata for genomes passing QC:')
-        genome_metadata = metadata_pass_qc(qc_pass_file)
-        self.log.info(f' - read metadata for {len(metadata):,} genomes')
+        genome_metadata = self.metadata_pass_qc(qc_pass_file)
+        self.log.info(f' - read metadata for {len(genome_metadata):,} genomes')
+
+        # read path to genomic FASTA files
+        self.log.info('Reading path to genomic FASTA files:')
+        genome_files = read_genome_path(genome_path_file, set(genome_metadata))
+        self.log.info(f' - read path for {len(genome_files):,} genomes')
+
+        assert len(genome_metadata) == len(genome_files)
 
         # get fungal species under NCBI classification
         self.log.info('Parsing NCBI species assignments:')
-        gid_to_ncbi_sp = parse_gid_to_ncbi_sp(ncbi_taxonomy_file)
+        gid_to_ncbi_sp = parse_gid_to_ncbi_sp(ncbi_taxonomy_file, set(genome_metadata))
+
+        assert len(genome_metadata) == len(gid_to_ncbi_sp)
 
         ncbi_sp_to_gids = defaultdict(set)
-        for gid, sp in gid_to_sp.items():
+        for gid, sp in gid_to_ncbi_sp.items():
             ncbi_sp_to_gids[sp].add(gid)
 
         self.log.info(f' - identified {len(ncbi_sp_to_gids):,} NCBI species across {len(gid_to_ncbi_sp):,} genomes')
 
         # determine genomes assembled from type material for named NCBI species
         self.log.info('Determining genomes assembled from type material for NCBI species:')
-        sp_type_genomes, subsp_type_genomes, sp_rep_genomes = self.determine_type_material(ncbi_assembly_file, 
-                                                                                            genome_metadata, 
-                                                                                            gid_to_ncbi_sp)
+        (sp_type_genomes, 
+            subsp_type_genomes, 
+            sp_rep_genomes, 
+            gid_to_type_material,
+            gid_to_rs_category) = self.determine_type_material(ncbi_assembly_file, 
+                                                                genome_metadata, 
+                                                                gid_to_ncbi_sp)
         self.log.info(f' - identified {len(sp_type_genomes):,} species with one or more type genomes')
         self.log.info(f' - identified {len(sp_rep_genomes):,} species with one or more NCBI representative genomes')
 
@@ -437,14 +454,20 @@ class SelectSpeciesRepresentative():
         self.log.info(f' - identified {len(subsp_only_type_genomes):,} species with only subspecies type genomes')
 
         self.log.info('The following species have multiple type strain of species genomes:')
+        count = 0
         for sp, gids in sp_type_genomes.items():
             if len(gids) > 1:
                 self.log.info(f' - {sp}: {gids}')
+                count += 1
+        self.log.info(f' - Total: {count}')
 
         self.log.info('The following species have multiple NCBI representative genomes:')
+        count = 0
         for sp, gids in sp_rep_genomes.items():
             if len(gids) > 1:
                 self.log.info(f' - {sp}: {gids}')
+                count += 1
+        self.log.info(f' - Total: {count}')
 
         assert len(set(sp_type_genomes) - set(ncbi_sp_to_gids)) == 0
 
@@ -455,20 +478,22 @@ class SelectSpeciesRepresentative():
                                                                 sp_type_genomes, 
                                                                 subsp_type_genomes, 
                                                                 sp_rep_genomes,
+                                                                gid_to_type_material,
+                                                                gid_to_rs_category,
                                                                 genome_files)
 
-        self.log.info(' - sp_has_type_or_rep_genome', selection_stats.sp_has_type_or_rep_genome)
-        self.log.info('   - sp_type_only', selection_stats.sp_type_only)
-        self.log.info('   - sp_rep_only', selection_stats.sp_rep_only)
-        self.log.info('   - single_sp_type_genome', selection_stats.single_sp_type_genome)
-        self.log.info('   - single_subsp_type_genome', selection_stats.single_subsp_type_genome)
-        self.log.info('   - multi_sp_type_genomes', selection_stats.multi_sp_type_genomes)
-        self.log.info('     - multi_sp_type_similar_genomes', selection_stats.multi_sp_type_similar_genomes)
-        self.log.info('     - multi_sp_type_ncbi_rep_resolved', selection_stats.multi_sp_type_ncbi_rep_resolved)
-        self.log.info('   - multi_subsp_type_genomes', selection_stats.multi_subsp_type_genomes)
-        self.log.info('     - multi_subsp_type_similar_genomes', selection_stats.multi_subsp_type_similar_genomes)
-        self.log.info('     - multi_subsp_type_ncbi_rep_resolved', selection_stats.multi_subsp_type_ncbi_rep_resolved)
-        self.log.info(' - manual_resolution', selection_stats.manual_resolution)
-        self.log.info(' - sp_no_type_genome', selection_stats.sp_no_type_genome)
-        self.log.info('   - sp_no_type_single', selection_stats.sp_no_type_single)
+        self.log.info(f' - sp_has_type_or_rep_genome: {selection_stats.sp_has_type_or_rep_genome:,}')
+        self.log.info(f'   - sp_type_only: {selection_stats.sp_type_only:,}')
+        self.log.info(f'   - sp_rep_only: {selection_stats.sp_rep_only:,}')
+        self.log.info(f'   - single_sp_type_genome: {selection_stats.single_sp_type_genome:,}')
+        self.log.info(f'   - single_subsp_type_genome: {selection_stats.single_subsp_type_genome:,}')
+        self.log.info(f'   - multi_sp_type_genomes: {selection_stats.multi_sp_type_genomes:,}')
+        self.log.info(f'     - multi_sp_type_similar_genomes: {selection_stats.multi_sp_type_similar_genomes:,}')
+        self.log.info(f'     - multi_sp_type_ncbi_rep_resolved: {selection_stats.multi_sp_type_ncbi_rep_resolved:,}')
+        self.log.info(f'   - multi_subsp_type_genomes: {selection_stats.multi_subsp_type_genomes:,}')
+        self.log.info(f'     - multi_subsp_type_similar_genomes: {selection_stats.multi_subsp_type_similar_genomes:,}')
+        self.log.info(f'     - multi_subsp_type_ncbi_rep_resolved: {selection_stats.multi_subsp_type_ncbi_rep_resolved:,}')
+        self.log.info(f' - manual_resolution: {selection_stats.manual_resolution:,}')
+        self.log.info(f' - sp_no_type_genome: {selection_stats.sp_no_type_genome:,}')
+        self.log.info(f'   - sp_no_type_single: {selection_stats.sp_no_type_single:,}')
                         

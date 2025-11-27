@@ -15,6 +15,7 @@
 #                                                                             #
 ###############################################################################
 
+import re
 import subprocess
 from dataclasses import dataclass
 
@@ -33,47 +34,6 @@ class SkaniResults:
 class ANIError(Exception):
     """Exception for failed execution of ANI/AF."""
     pass
-
-
-def dist(qid: str, rid: str, q_gf: str, r_gf: str, preset: str = None):
-    """CalculateANI between a pair of genomes."""
-
-    # run skani and write results to stdout
-    try:
-        cmd = ['skani', 'dist',
-                '-q', q_gf,
-                '-r', r_gf,
-                '-o', '/dev/stdout']
-
-        if preset is not None:
-            cmd += [preset]
-
-        proc = subprocess.Popen(cmd,
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE,
-                                    encoding='utf-8')
-        stdout, stderr = proc.communicate()
-
-        if proc.returncode != 0:  # skani returned an error code
-            print(stderr)
-            raise ANIError(f"skani exited with code {proc.returncode}.")
-    except Exception as e:
-        print(e)
-        raise
-
-    result_lines = stdout.splitlines()
-    if len(result_lines) == 2:
-        tokens = result_lines[1].split('\t')
-        ani = float(tokens[2])
-        af_r = float(tokens[3])
-        af_q = float(tokens[4])
-        result = SkaniResults(ani, af_r, af_q)
-    else:
-        # genomes too divergent to determine ANI and AF
-        # with skani so default to zeros
-        result = SkaniResults(0.0, 0.0, 0.0)
-
-    return result
 
 
 class Skani():
@@ -123,6 +83,47 @@ class Skani():
         except Exception as e:
             print(e)
             return 'unknown'
+
+    @staticmethod
+    def dist(qid: str, rid: str, q_gf: str, r_gf: str, preset: str = None):
+        """CalculateANI between a pair of genomes."""
+
+        # run skani and write results to stdout
+        try:
+            cmd = ['skani', 'dist',
+                    '-q', q_gf,
+                    '-r', r_gf,
+                    '-o', '/dev/stdout']
+
+            if preset is not None:
+                cmd += [preset]
+
+            proc = subprocess.Popen(cmd,
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE,
+                                        encoding='utf-8')
+            stdout, stderr = proc.communicate()
+
+            if proc.returncode != 0:  # skani returned an error code
+                print(stderr)
+                raise ANIError(f"skani exited with code {proc.returncode}.")
+        except Exception as e:
+            print(e)
+            raise
+
+        result_lines = stdout.splitlines()
+        if len(result_lines) == 2:
+            tokens = result_lines[1].split('\t')
+            ani = float(tokens[2])
+            af_r = float(tokens[3])
+            af_q = float(tokens[4])
+            result = SkaniResults(ani, af_r, af_q)
+        else:
+            # genomes too divergent to determine ANI and AF
+            # with skani so default to zeros
+            result = SkaniResults(0.0, 0.0, 0.0)
+
+        return result
 
     def triangle(self, genome_paths: Dict[str, str], 
                         output_dir: str, 

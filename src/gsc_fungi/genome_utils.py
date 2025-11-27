@@ -17,11 +17,12 @@
 
 import os
 from collections import namedtuple
+from typing import Dict, Set, Optional
 
 from gtdblib.util.bio.accession import canonical_gid
 
 
-def read_genome_path(genome_path_file):
+def read_genome_path(genome_path_file: str, gids_of_interest: Optional[Set[str]] = None) -> Dict[str, str]:
     """Determine path to genomic FASTA file for each genome."""
 
     genome_files = {}
@@ -29,12 +30,13 @@ def read_genome_path(genome_path_file):
         line_split = line.strip().split('\t')
 
         gid = line_split[0]
-        gid = canonical_gid(gid)
+        if gids_of_interest is not None and gid not in gids_of_interest:
+            continue
 
         genome_path = line_split[1]
         accession = os.path.basename(os.path.normpath(genome_path))
 
         genome_files[gid] = os.path.join(
-            genome_path, accession + '_genomic.fna')
+            genome_path, accession + '_genomic.fna.gz')
 
     return genome_files

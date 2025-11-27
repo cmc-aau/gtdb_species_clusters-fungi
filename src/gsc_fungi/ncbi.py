@@ -16,7 +16,7 @@
 ###############################################################################
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Set, Optional
 
 
 @dataclass
@@ -51,7 +51,7 @@ REFSEQ_CATEGORIES = set([
 ])
 
 
-def parse_gid_to_ncbi_sp(ncbi_taxonomy_file: str) -> Dict[str, str]:
+def parse_gid_to_ncbi_sp(ncbi_taxonomy_file: str, gids_of_interest: Optional[Set[str]] = None) -> Dict[str, str]:
     """Parse NCBI taxonomy file to determine species classification of each genome."""
 
     gid_to_sp = {}
@@ -62,6 +62,9 @@ def parse_gid_to_ncbi_sp(ncbi_taxonomy_file: str) -> Dict[str, str]:
             gid = tokens[0]
             if gid.startswith('GCF_'):
                 # GTDB Fungi DB is build strictly from genomes in GenBank
+                continue
+
+            if gids_of_interest is not None and gid not in gids_of_interest:
                 continue
 
             sp = tokens[1].split(';')[-1]
