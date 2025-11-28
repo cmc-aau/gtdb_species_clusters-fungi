@@ -134,22 +134,29 @@ class OptionsParser():
 
         check_file_exists(self.args_abs_path(params, 'ncbi_taxonomy_file'))
         check_file_exists(self.args_abs_path(params, 'cur_genome_path_file'))
-        check_file_exists(self.args_abs_path(params, 'mycobank_file'))
-        check_file_exists(self.args_abs_path(params, 'mycobank_sanctioned_names_persoon'))
-        check_file_exists(self.args_abs_path(params, 'mycobank_sanctioned_names_ef'))
 
         out_dir = self.args_abs_path(params, args.subparser_name)
         make_sure_path_exists(out_dir)
         self.log.info(f"Output directory: {out_dir}")
 
-        p = SpeciesClusters(out_dir)
+        p = SpeciesClusters(args.cpus, out_dir)
         p.run(qc_pass_file,
                 sp_rep_file,
                 self.args_abs_path(params, 'ncbi_taxonomy_file'),
-                self.args_abs_path(params, 'cur_genome_path_file'),
-                self.args_abs_path(params, 'mycobank_file'),
-                self.args_abs_path(params, 'mycobank_sanctioned_names_persoon'),
-                self.args_abs_path(params, 'mycobank_sanctioned_names_ef'))
+                self.args_abs_path(params, 'cur_genome_path_file'))
+
+    def merge_sp_naming_priority(self, args) -> None:
+        """Determine name with priority for merged species."""
+
+        check_file_exists(args.input_params_file)
+        params = parse_toml_file(args.input_params_file)
+
+        check_file_exists(self.args_abs_path(params, 'mycobank_file'))
+        check_file_exists(self.args_abs_path(params, 'mycobank_sanctioned_names_persoon'))
+        check_file_exists(self.args_abs_path(params, 'mycobank_sanctioned_names_ef'))
+
+        # TBD
+
 
     def taxa_by_rank(self, args) -> None:
         """Get number of genomes and taxa at each rank."""

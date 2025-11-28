@@ -19,21 +19,21 @@ import os
 import gzip
 import logging
 import pickle
-from collections import defaultdict
+from itertools import combinations
+from collections import defaultdict, deque
 
 from gtdblib.util.shell.execute import check_dependencies
 
 from gsc_fungi import defaults as Defaults
 from gsc_fungi.genome_utils import read_genome_path
 from gsc_fungi.skani import Skani
-from gsc_fungi import mycobank as Mycobank
 from gsc_fungi.ncbi import parse_gid_to_ncbi_sp
 
 
 class SpeciesClusters():
     """Create ANI-based species clusters."""
 
-    def __init__(self, out_dir: str):
+    def __init__(self, cpus: int, out_dir: str):
         """Initialization.
 
         :param out_dir: Output directory.
@@ -42,12 +42,12 @@ class SpeciesClusters():
         self.log = logging.getLogger('rich')
         self.out_dir = out_dir
 
-        check_dependencies(['skani'])
+        self.skani = Skani(cpus)
 
-    def parse_pass_qc_assembly_score(self, qc_pass_file: str) -> Set[str]:
+    def parse_pass_qc_assembly_score(self, qc_pass_file: str) -> Dict[str, str]:
         """Get assembly score of genomes passing QC."""
 
-        gids_pass_qc = set()
+        gids_pass_qc = {}
         with open(qc_pass_file) as f:
             header = f.readline().strip().split('\t')
             assem_score_idx = header.index('assembly_score')
@@ -68,8 +68,7 @@ class SpeciesClusters():
                                             preset = Defaults.SKANI_PRESET,
                                             min_af = Defaults.AF_SP,
                                             min_sketch_ani = Defaults.SKANI_PREFILTER_THRESHOLD)
-            pickle.dump(ani_af, open(os.path.join(
-                self.out_dir, 'ani_af.pkl'), 'wb'))
+            pickle.dump(ani_af, open(os.path.join(self.out_dir, 'ani_af.pkl'), 'wb'))
         else:
             ani_af = pickle.load(
                 open(os.path.join(self.out_dir, 'ani_af.pkl'), 'rb'))
@@ -163,7 +162,7 @@ class SpeciesClusters():
                 merged_pair[sp1][sp2] = (ani, af)
 
         perc_merged = 100.0 * len(merged_spp) / len(rid_to_sp)
-        self.log.info(' - merging stats (no. species / perc):', len(merged_spp), f'{perc_merged:.1f}')
+        self.log.info(f' - merging stats (no. species / perc): {len(merged_spp)} ({perc_merged:.1f}%)')
 
         # get genus level counts for merged species
         genus_merged_spp = defaultdict(set)
@@ -171,7 +170,7 @@ class SpeciesClusters():
             genus = sp.split()[0].replace('s__', '')
             genus_merged_spp[genus].add(sp)
 
-        fout = open(os.path.join(SP_REP_DIR, f'species_merged-genus_counts-ani{ani_threshold}_af{af_threshold}.tsv'), 'w')
+        fout = open(os.path.join(self.out_dir, f'species_merged-genus_counts-ani{ani_threshold}_af{af_threshold}.tsv'), 'w')
         fout.write('ncbi_genus\tnum_species_merged\tmerged_species_perc\tncbi_species\n')
         for genus, count in sorted(genus_merged_spp.items(), key=lambda kv: len(kv[1]), reverse=True):
             fout.write('{}\t{}\t{:.2f}\t{}\n'.format(
@@ -183,7 +182,7 @@ class SpeciesClusters():
         fout.close()
 
         # write out species that are subject to merging at given ANI and AF criteria
-        fout = open(os.path.join(SP_REP_DIR, f'species_merged-naming_priority-ani{ani_threshold}_af{af_threshold}.tsv'), 'w')
+        fout = open(os.path.join(self.out_dir, f'species_merged-naming_priority-ani{ani_threshold}_af{af_threshold}.tsv'), 'w')
         fout.write('species1\tgid1\tyear_publication1\tname_status1\tis_type_strain_of_species1\tsanctioned_name1')
         fout.write('\tspecies2\tgid2\tyear_publication2\tname_status2\tis_type_strain_of_species2\tsanctioned_name2')
         fout.write('\tpriority_species\treason\tani\taf\n')
@@ -244,7 +243,7 @@ class SpeciesClusters():
 
         fout.close()
 
-        self.log.info(' - undetermined_priority_count', undetermined_priority_count)
+        self.log.info(f' - undetermined_priority_count: {undetermined_priority_count:,}')
 
         # generate list of species representative genomes sorted such
         # that genomes with naming priority allows come before any
@@ -331,10 +330,9 @@ class SpeciesClusters():
             closest_ani = 0
             closest_rid = None
             for rid in clusters:
-                ani = anis[rid].get(gid, 0)
-                af = max(afs[rid].get(gid, 0), afs[gid].get(rid, 0))
+                ani, af = Skani.symmetric_ani_af(ani_af, rid, gid)
 
-                if af >= AF_SP_THRESHOLD and ani >= closest_ani:
+                if af >= Defaults.AF_SP and ani >= closest_ani:
                     closest_ani = ani
                     closest_rid = rid
 
@@ -351,7 +349,7 @@ class SpeciesClusters():
 
         rid_to_sp = {}
         sp_to_rid = {}
-        sp_type_strains = set()
+        sp_type_strains = defaultdict(set)
         with open(sp_rep_file) as f:
             header = f.readline().strip().split('\t')
 
@@ -369,8 +367,6 @@ class SpeciesClusters():
                 is_rep = tokens[is_rep_idx] == 'True'
                 if is_rep:
                     gid = tokens[gid_idx]
-                    assert gid in gids_pass_qc
-                    assert gids_pass_qc[gid] == float(tokens[assem_score_idx])
                     rid_to_sp[gid] = sp
                     sp_to_rid[sp] = gid
 
@@ -381,7 +377,7 @@ class SpeciesClusters():
 
     def write_sp_clusters(self, 
                             sp_clusters: Dict[str, List[str]], 
-                            gid_to_sp: Dict[str, str], 
+                            gid_to_ncbi_sp: Dict[str, str], 
                             rid_to_sp: Dict[str, str], 
                             out_file: str) -> None:
         """Write out species clusters to file."""
@@ -395,13 +391,13 @@ class SpeciesClusters():
             # classification occurs in the cluter
             ncbi_sp_counts = defaultdict(int)
             for gid in cids:
-                sp = gid_to_sp[gid]
-                ncbi_sp_counts[sp] += 1
+                ncbi_sp = gid_to_ncbi_sp[gid]
+                ncbi_sp_counts[ncbi_sp] += 1
 
             ncbi_sp_counts_sorted = sorted(ncbi_sp_counts.items(), key=lambda kv: kv[1], reverse=True)
             ncbi_sp_str = []
-            for sp, count in ncbi_sp_counts_sorted:
-                ncbi_sp_str.append(f'{sp}: {count}')
+            for ncbi_sp, count in ncbi_sp_counts_sorted:
+                ncbi_sp_str.append(f'{ncbi_sp}: {count}')
             ncbi_sp_str = ', '.join(ncbi_sp_str)
 
             # generate string indicating species representatives in cluster
@@ -418,47 +414,38 @@ class SpeciesClusters():
                 ncbi_sp_str
             ))
 
-            fout.close()
+        fout.close()
 
     def run(self,
             qc_pass_file: str,
             sp_rep_file: str,
             ncbi_taxonomy_file: str,
-            genome_path_file: str,
-            mycobank_file: str,
-            mycobank_sanctioned_names_persoon_file: str,
-            mycobank_sanctioned_names_ef_file: str) -> None:
+            genome_path_file: str) -> None:
         """Create ANI-based species clusters."""
-
-        # read path to genomic FASTA files
-        self.log.info('Reading path to genomic FASTA files:')
-        genome_files = read_genome_path(genome_path_file)
-        self.log.info(f' - read path for {len(genome_files):,} genomes')
 
         # read genomes passing QC
         self.log.info('Reading genomes passing QC:')
         gids_pass_qc = self.parse_pass_qc_assembly_score(qc_pass_file)
         self.log.info(f' - identified {len(gids_pass_qc):,} genomes passing QC')
 
+        # read path to genomic FASTA files
+        self.log.info('Reading path to genomic FASTA files:')
+        genome_files = read_genome_path(genome_path_file, set(gids_pass_qc))
+        self.log.info(f' - read path for {len(genome_files):,} genomes')
+
+        assert len(gids_pass_qc) == len(genome_files)
+
         # calculate pairwise ANI values between all genomes
-        ani_af = self.calculate_pairwise_ani(gids_qc, genome_files)
-
-        # read list of sanctioned names that always have naming priority
-        self.log.info('Reading sanctioned names:')
-        sanctioned_names = Mycobank.read_sanctioned_names(mycobank_sanctioned_names_persoon_file)
-        sanctioned_names.update(Mycobank.read_sanctioned_names(mycobank_sanctioned_names_ef_file))
-        self.log.info(f' - read {len(sanctioned_names):,} sanctioned names')
-
-        # read MycoBank nomenclature information used to 
-        # resolve naming priority
-        self.log.info('Reading MycoBank data:')
-        mycobank_data = Mycobank.parse_mycobank_data(mycobank_file)
-        self.log.info(f' - read data for {len(mycobank_data):,} genera and species')
+        ani_af = self.calculate_pairwise_ani(gids_pass_qc, genome_files)
 
         # read GTDB representatives for named NCBI fungal species
         self.log.info('Reading GTDB species representatives:')
-        rid_to_sp, sp_to_rid, sp_type_strains = parse_species_representatives(sp_rep_file)
+        rid_to_sp, sp_to_rid, sp_type_strains = self.parse_species_representatives(sp_rep_file)
         self.log.info(f' - identified {len(rid_to_sp):,} representative genomes')
+
+        for rid in rid_to_sp:
+            # sanity check that representative genomes passed QC
+            assert rid in gids_pass_qc
 
         # get NCBI species classification for genomes
         self.log.info('Reading NCBI species assignment for all genomes:')
@@ -471,7 +458,7 @@ class SpeciesClusters():
             self.log.info(f' - {ani_threshold}')
 
             # determine representatives that will be merged at ANI and AF thresholds
-            self.logger.info('- determining species representatives to merged')
+            self.log.info('- determining species representatives to merged')
             merged_rids_by_priority = self.merge_sp_reps(ani_af,
                                                             rid_to_sp, 
                                                             sp_to_rid, 
@@ -480,10 +467,10 @@ class SpeciesClusters():
                                                             Defaults.AF_SP)
 
             # cluster genomes making sure to select species representative genomes with naming priority
-            self.logger.info(' - determining species clusters')
+            self.log.info(' - determining species clusters')
             sp_clusters = self.create_sp_cluters(ani_af, merged_rids_by_priority, rid_to_sp, gids_pass_qc, ani_threshold)
 
             # write out species clusters
-            self.logger.info(' - writting species clusters to file')
+            self.log.info(' - writing species clusters to file')
             out_file = os.path.join(self.out_dir, f'sp_clusters-ani{ani_threshold}.tsv')
-            self.write_sp_clusters(sp_clusters, gid_to_sp, rid_to_sp, out_file)
+            self.write_sp_clusters(sp_clusters, gid_to_ncbi_sp, rid_to_sp, out_file)

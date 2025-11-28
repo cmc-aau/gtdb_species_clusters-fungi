@@ -104,12 +104,15 @@ if __name__ == '__main__':
                                                 formatter_class=CustomHelpFormatter,
                                                 description='Select species representative genomes.')
     cdn_select_sp_reps_parser.add_argument('input_params_file', help='TOML file indicating input parameters')
+    cdn_select_sp_reps_parser.add_argument('--silent', help="suppress output", action='store_true')
 
     # quality check genomes
     cdn_sp_clusters_parser = subparsers.add_parser('cdn_sp_clusters',
                                                 formatter_class=CustomHelpFormatter,
                                                 description='Create ANI-based species clusters.')
     cdn_sp_clusters_parser.add_argument('input_params_file', help='TOML file indicating input parameters')
+    cdn_sp_clusters_parser.add_argument('-c', '--cpus', help='number of CPUs', default=1)
+    cdn_sp_clusters_parser.add_argument('--silent', help="suppress output", action='store_true')
 
     # quality check genomes
     u_qc_genomes_parser = subparsers.add_parser('u_qc_genomes',

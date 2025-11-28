@@ -15,8 +15,11 @@
 #                                                                             #
 ###############################################################################
 
+import os
 import re
+import logging
 import subprocess
+from collections import defaultdict
 from dataclasses import dataclass
 
 from gtdblib.util.shell.execute import check_dependencies
@@ -142,7 +145,7 @@ class Skani():
 
         try:
             # create file with path to genomes
-            self.log.info(' - create file with path to genomes')
+            self.log.info(' - creating file with path to genomes')
             genome_path_file = os.path.join(output_dir, 'skani_genome_paths.tsv')
             fout = open(genome_path_file, 'w')
             for gp in genome_paths.values():
@@ -182,7 +185,7 @@ class Skani():
             gp_to_gid_map[gp] = gid
 
         # parse skani results
-        self.log.info(' - parsing skani results')
+        self.log.info(' - parsing results')
         ani_af = defaultdict(dict)
         with open(results_file) as f:
             header = f.readline().strip().split('\t')

@@ -15,8 +15,13 @@
 #                                                                             #
 ###############################################################################
 
+import re
+import gzip
+import logging
 from dataclasses import dataclass
-from typing import Dict, List, Set
+from collections import defaultdict
+from typing import Dict, List, Set, Optional
+from unidecode import unidecode
 
 
 YEAR_UNKNOWN = 10000
@@ -42,61 +47,131 @@ class MycoBankMetadata:
     year_publication: int
     name_status: str
     is_current_name: bool
-    current_name: str
-    basionym: str
+    current_name: Optional[str]
+    basionym: Optional[str]
     taxonomic_synonyms: List[str]
     obligate_synonyms: List[str]
 
 
-def parse_mycobank_synonym_data(synonym_data, rank):
-    """Parse synonym data from MycoBank.
-    
-    *** THIS IS INCOMPLETE - I BELIEVE THIS WAS PREVIOUSLY DONE BY PIERRE ***
+def strip_nonalnum(text: str) -> str:
+    """Remove leading and trailing non-alphanumeric characters."""
+    return re.sub(r"^\W+|\W+$", "", text)
+
+
+def extract_binomial_name(text, rank, taxon_name):
+    """
+    Extract the appropriate taxonomic name based on rank.
+
+    Args:
+        text: The text containing the taxonomic name
+        rank: The taxonomic rank (e.g., 'sp.', 'var.')
+        taxon_name: The original taxon name
+
+    Returns:
+        Cleaned binomial or generic name
+    """
+    words = text.strip().split()
+
+    # For species or variety ranks, extract binomial names
+    if rank == 'sp.' or rank == 'var.' or len(taxon_name.strip().split()) == 2:
+        # Include variety designation if present
+        if len(words) > 2 and words[2] == 'var.':
+            name = ' '.join(words[:4])
+        else:
+            name = ' '.join(words[:2])
+
+        name = strip_nonalnum(name)
+
+        # check if name is valid by making sure it consists of 
+        # only alphabetical characters, spaces, periods, or hyphens
+        #  Examples:
+        #    Lecidea alboatra var. margaritacea
+        #    Diacanthodes novo-guineensis
+        if not all(c.isalpha() or c.isspace() or c in ['.', '-'] for c in name):
+            name = None
+    else:
+        # For higher ranks, extract only genus name
+        name = words[0] if words else ''
+        name = strip_nonalnum(name)
+
+    return name
+
+
+def parse_mycobank_synonym_data(synonym_data: str, rank: str, taxon_name: str) -> Dict[str, List[str]]:
+    """
+    Parse synonym information from GTDB synonymy string.
+
+    Args:
+        synonymy: String containing synonym information
+        rank: Taxonomic rank
+        taxon_name: Name of the taxon
+
+    Returns:
+        Dictionary mapping synonym types to lists of names
     """
 
-    SECTION_TOKEN = '<NEW_SECTION>'
-    SYNONYM_SECTIONS = ['Current name:', 'Basionym:', 'Taxonomic synonyms:', 'Obligate synonyms:']
+    synonym_data = unidecode(synonym_data)
 
-    # mark synonym string with the section token at the start of each section
-    for synonym_section in SYNONYM_SECTIONS:
-        synonym_data = synonym_data.replace(synonym_section, f'{SECTION_TOKEN}{synonym_section}')
+    result = defaultdict(list)
 
-    # split synonym string on section token and then process each sections data accordingly
-    current_name = None
-    basionym = None
-    taxonomic_synonyms = set()
-    obligate_synonyms = set()
-    for section_data in synonym_data.split(SECTION_TOKEN):
-        if section_data.startswith('Current name:'):
-            current_name_tokens = [t.strip() for t in section_data.replace('Current name:', '').split()]
-            if rank == 'sp.':
-                current_name = f"s__{' '.join(current_name_tokens[0:2])}"
-            elif rank == 'gen.':
-                current_name = f"g__{' '.join(current_name_tokens[0:1])}"
-            else:
-                print('[Error] Invalid rank.')
-                sys.exit(1)
-        elif section_data.startswith('Basionym:'):
-            pass
-        elif section_data.startswith('Taxonomic synonyms:'):
-            pass
-        elif section_data.startswith('Obligate synonyms:'):
-            pass
+    # Define fields to search for
+    fields = [
+        ('Current name:', 'current_name'),
+        ('Basionym:', 'basionym'),
+        ('Taxonomic synonyms:', 'taxonomic_synonyms'),
+        ('Taxonomic synonym:', 'taxonomic_synonyms'),
+        ('Obligate synonyms:', 'obligate_synonyms'),
+        ('Obligate synonym:', 'obligate_synonyms')
+    ]
 
-    return current_name, basionym, taxonomic_synonyms, obligate_synonyms
+    # Find all field positions
+    field_positions = {}
+    for field_text, field_name in fields:
+        index = synonym_data.find(field_text)
+        if index != -1:
+            field_positions[index] = {
+                'name': field_name,
+                'length': len(field_text)
+            }
+
+    if not field_positions:
+        return result
+
+    # Process each field in order
+    sorted_positions = sorted(field_positions.keys())
+
+    for idx, pos in enumerate(sorted_positions):
+        # Extract text between this field and the next (or end of string)
+        start = pos + field_positions[pos]['length']
+        end = sorted_positions[idx + 1] if idx < len(sorted_positions) - 1 else len(synonym_data)
+        text_segment = synonym_data[start:end]
+
+        # Split by MycoBank reference pattern [MB#######]
+        name_segments = re.split(r'\[MB#\d+\]', text_segment)
+
+        field_name = field_positions[pos]['name']
+
+        for segment in name_segments:
+            segment = strip_nonalnum(segment)
+            if segment:
+                name = extract_binomial_name(segment, rank, taxon_name)
+                if name:
+                    result[field_name].append(name)
+
+    return result
 
 
 def parse_mycobank_data(mycobank_file: str) -> Dict[str, MYCOBANK_METADATA]:
     """Parse Mycobank nomenclature information."""
 
     mycobank_data = {}
-    with open(mycobank_file, errors='replace') as f:
+    with gzip.open(mycobank_file, 'rt', errors='replace') as f:
         header = f.readline().strip().split('\t')
 
-        taxon_name_idx = header.index('Taxon_name')
-        rank_idx = header.index('Rank')
-        year_idx = header.index('Year_of_effective_publication')
-        name_status_idx = header.index('Name_status')
+        taxon_name_idx = header.index('Taxon name')
+        rank_idx = header.index('Rank.Rank name')
+        year_idx = header.index('Year of effective publication')
+        name_status_idx = header.index('Name status')
         synonymy_idx = header.index('Synonymy')
 
         for line in f:
@@ -112,8 +187,27 @@ def parse_mycobank_data(mycobank_file: str) -> Dict[str, MYCOBANK_METADATA]:
             else:
                 continue
 
-            current_name, basionym, taxonomic_synonyms, obligate_synonyms = parse_mycobank_synonym_data(tokens[synonymy_idx], rank)
+            synonym_data = parse_mycobank_synonym_data(tokens[synonymy_idx], rank, taxon_name)
 
+            if len(synonym_data['current_name']) == 0:
+                current_name = None
+            elif len(synonym_data['current_name']) == 1:
+                current_name = synonym_data['current_name'][0]
+            else:
+                self.log = logging.getLogger('rich')
+                self.log.error(f'Mycobank data indicated multiple current names: {synonym_data['current_name']}')
+                sys.exit(1)
+
+            basionym = None
+            if len(synonym_data['basionym']) == 0:
+                pass
+            elif len(synonym_data['basionym']) == 1:
+                basionym = synonym_data['basionym'][0]
+            else:
+                self.log = logging.getLogger('rich')
+                self.log.error(f'Mycobank data indicated multiple basionyms: {synonym_data['basionym']}')
+                sys.exit(1)
+            
             year = tokens[year_idx]
             if '/' in year: # some data have the format dd/mm/yyyy
                 year = year.split('/')[-1]
@@ -125,15 +219,17 @@ def parse_mycobank_data(mycobank_file: str) -> Dict[str, MYCOBANK_METADATA]:
                 taxon_name == current_name,
                 current_name,
                 basionym,
-                taxonomic_synonyms,
-                obligate_synonyms
+                synonym_data['taxonomic_synonyms'],
+                synonym_data['obligate_synonyms']
             )
 
     return mycobank_data
 
+
 def read_sanctioned_names(sanctioned_names_file: str) -> Set[str]:
     """Parse file with sanctioned names."""
 
+    sanctioned_names = set()
     with open(sanctioned_names_file, errors='replace') as f:
         header = f.readline().strip().split('\t')
 
@@ -149,3 +245,5 @@ def read_sanctioned_names(sanctioned_names_file: str) -> Set[str]:
                 taxon = f'g__{taxon}'
 
             sanctioned_names.add(taxon)
+
+    return sanctioned_names
