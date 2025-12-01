@@ -16,7 +16,7 @@
 ###############################################################################
 
 from dataclasses import dataclass
-from typing import List, Set, Optional
+from typing import List, Set, Dict, Optional
 
 
 @dataclass

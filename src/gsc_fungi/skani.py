@@ -21,17 +21,21 @@ import logging
 import subprocess
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Tuple, List, Dict, TypeAlias
 
 from gtdblib.util.shell.execute import check_dependencies
 
 
 @dataclass
-class SkaniResults:
+class SkaniResult:
     """Metadata for a genome including quality metrics."""
 
     ani: float
     af_ref: float
     af_query: float
+
+
+SkaniResults = Dict[str, Dict[str, List]]
 
 
 class ANIError(Exception):
@@ -42,7 +46,7 @@ class ANIError(Exception):
 class Skani():
     """Calculate ANI between genomes using Skani."""
 
-    def __init__(self, cpus):
+    def __init__(self, cpus: int) -> None:
         """Initialization."""
 
         check_dependencies(['skani'])
@@ -53,7 +57,7 @@ class Skani():
         self.log.info('Using skani v{}.'.format(Skani.get_version()))
 
     @staticmethod
-    def symmetric_ani_af(ani_af, gid1, gid2):
+    def symmetric_ani_af(ani_af, gid1: str, gid2: str) -> Tuple[float, float]:
         """Calculate symmetric ANI and AF statistics between genomes."""
 
         if gid1 == gid2:
@@ -69,7 +73,7 @@ class Skani():
         return 0.0, 0.0
 
     @staticmethod
-    def get_version():
+    def get_version() -> str:
         """Returns the version of skani on the system path.
 
         Returns
@@ -88,7 +92,7 @@ class Skani():
             return 'unknown'
 
     @staticmethod
-    def dist(qid: str, rid: str, q_gf: str, r_gf: str, preset: str = None):
+    def dist(qid: str, rid: str, q_gf: str, r_gf: str, preset: str = None) -> SkaniResult:
         """CalculateANI between a pair of genomes."""
 
         # run skani and write results to stdout
@@ -120,11 +124,11 @@ class Skani():
             ani = float(tokens[2])
             af_r = float(tokens[3])
             af_q = float(tokens[4])
-            result = SkaniResults(ani, af_r, af_q)
+            result = SkaniResult(ani, af_r, af_q)
         else:
             # genomes too divergent to determine ANI and AF
             # with skani so default to zeros
-            result = SkaniResults(0.0, 0.0, 0.0)
+            result = SkaniResult(0.0, 0.0, 0.0)
 
         return result
 
@@ -132,7 +136,7 @@ class Skani():
                         output_dir: str, 
                         preset: str,
                         min_af: float = 50,
-                        min_sketch_ani:float = 85):
+                        min_sketch_ani:float = 85) -> SkaniResults:
         """Calculate ANI/AF between genome pairs in lower triangle.
         
         This method is fast, but has large memory requirements if large
@@ -215,7 +219,7 @@ class Skani():
                 output_dir: str, 
                 preset: str,
                 min_af: float = 50,
-                min_sketch_ani:float = 85):
+                min_sketch_ani:float = 85) -> SkaniResults:
         """Calculate skani between query and reference genomes.
         
         Since skani is symmetric each pair of genomes is only processed once. That is,

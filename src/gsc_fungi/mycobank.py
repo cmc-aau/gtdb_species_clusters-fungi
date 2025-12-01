@@ -15,6 +15,7 @@
 #                                                                             #
 ###############################################################################
 
+import sys
 import re
 import gzip
 import logging
@@ -194,8 +195,8 @@ def parse_mycobank_data(mycobank_file: str) -> Dict[str, MycoBankMetadata]:
             elif len(synonym_data['current_name']) == 1:
                 current_name = synonym_data['current_name'][0]
             else:
-                self.log = logging.getLogger('rich')
-                self.log.error(f'Mycobank data indicated multiple current names: {synonym_data['current_name']}')
+                log = logging.getLogger('rich')
+                log.error(f"Mycobank data indicated multiple current names: {synonym_data['current_name']}")
                 sys.exit(1)
 
             basionym = None
@@ -204,8 +205,8 @@ def parse_mycobank_data(mycobank_file: str) -> Dict[str, MycoBankMetadata]:
             elif len(synonym_data['basionym']) == 1:
                 basionym = synonym_data['basionym'][0]
             else:
-                self.log = logging.getLogger('rich')
-                self.log.error(f'Mycobank data indicated multiple basionyms: {synonym_data['basionym']}')
+                log = logging.getLogger('rich')
+                log.error(f"Mycobank data indicated multiple basionyms: {synonym_data['basionym']}")
                 sys.exit(1)
             
             year = tokens[year_idx]

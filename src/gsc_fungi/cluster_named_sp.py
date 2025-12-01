@@ -16,13 +16,11 @@
 ###############################################################################
 
 import os
-import gzip
 import logging
 import pickle
 from itertools import combinations
 from collections import defaultdict, deque
-
-from gtdblib.util.shell.execute import check_dependencies
+from typing import Dict, Set, Tuple, List
 
 from gsc_fungi import defaults as Defaults
 from gsc_fungi.genome_utils import read_genome_path
@@ -151,7 +149,7 @@ class ClusterNamedSpecies():
                         sp_type_strains: Dict[str, Set[str]], 
                         ani_threshold: float, 
                         af_threshold: float,
-                        mycobank_data: Dict[str, MyycoBank.MycoBankMetadata],
+                        mycobank_data: Dict[str, Mycobank.MycoBankMetadata],
                         sanctioned_names: Set[str]) -> List[str]:
         """Resolve naming priority for species representatives merged at a given ANI and AF threshold."""
 

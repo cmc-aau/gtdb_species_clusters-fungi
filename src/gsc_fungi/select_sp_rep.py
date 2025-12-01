@@ -21,7 +21,7 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from itertools import combinations
-from typing import Dict, Set, Tuple
+from typing import Dict, Set, Tuple, List
 
 from gtdblib.util.shell.execute import check_dependencies
 
