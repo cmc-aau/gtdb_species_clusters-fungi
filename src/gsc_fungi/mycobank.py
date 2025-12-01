@@ -161,7 +161,7 @@ def parse_mycobank_synonym_data(synonym_data: str, rank: str, taxon_name: str) -
     return result
 
 
-def parse_mycobank_data(mycobank_file: str) -> Dict[str, MYCOBANK_METADATA]:
+def parse_mycobank_data(mycobank_file: str) -> Dict[str, MycoBankMetadata]:
     """Parse Mycobank nomenclature information."""
 
     mycobank_data = {}

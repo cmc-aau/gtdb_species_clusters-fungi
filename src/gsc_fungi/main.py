@@ -24,7 +24,7 @@ from gtdblib.util.shell.gtdbshutil import check_file_exists, make_sure_path_exis
 
 from gsc_fungi.qc_genomes import QcGenomes, QcCriteria
 from gsc_fungi.select_sp_rep import SelectSpeciesRepresentative
-from gsc_fungi.species_clusters import SpeciesClusters
+from gsc_fungi.cluster_named_sp import ClusterNamedSpecies
 
 from gsc_fungi.taxa_by_rank import TaxaByRank
 from gsc_fungi.plots.plot_genome_stats import PlotGenomeStats
@@ -120,8 +120,8 @@ class OptionsParser():
               self.args_abs_path(params, 'ncbi_taxonomy_file'),
               self.args_abs_path(params, 'cur_genome_path_file'))
 
-    def cdn_sp_clusters(self, args) -> None:
-        """Create ANI-based species clusters."""
+    def cdn_cluster_named_sp(self, args) -> None:
+        """Create ANI-based species clusters for named species representatives."""
 
         check_file_exists(args.input_params_file)
         params = parse_toml_file(args.input_params_file)
@@ -134,29 +134,22 @@ class OptionsParser():
 
         check_file_exists(self.args_abs_path(params, 'ncbi_taxonomy_file'))
         check_file_exists(self.args_abs_path(params, 'cur_genome_path_file'))
+        check_file_exists(self.args_abs_path(params, 'mycobank_file'))
+        check_file_exists(self.args_abs_path(params, 'mycobank_sanctioned_names_persoon'))
+        check_file_exists(self.args_abs_path(params, 'mycobank_sanctioned_names_ef'))
 
         out_dir = self.args_abs_path(params, args.subparser_name)
         make_sure_path_exists(out_dir)
         self.log.info(f"Output directory: {out_dir}")
 
-        p = SpeciesClusters(args.cpus, out_dir)
+        p = ClusterNamedSpecies(args.cpus, out_dir)
         p.run(qc_pass_file,
                 sp_rep_file,
                 self.args_abs_path(params, 'ncbi_taxonomy_file'),
-                self.args_abs_path(params, 'cur_genome_path_file'))
-
-    def merge_sp_naming_priority(self, args) -> None:
-        """Determine name with priority for merged species."""
-
-        check_file_exists(args.input_params_file)
-        params = parse_toml_file(args.input_params_file)
-
-        check_file_exists(self.args_abs_path(params, 'mycobank_file'))
-        check_file_exists(self.args_abs_path(params, 'mycobank_sanctioned_names_persoon'))
-        check_file_exists(self.args_abs_path(params, 'mycobank_sanctioned_names_ef'))
-
-        # TBD
-
+                self.args_abs_path(params, 'cur_genome_path_file'),
+                self.args_abs_path(params, 'mycobank_file'),
+                self.args_abs_path(params, 'mycobank_sanctioned_names_persoon'),
+                self.args_abs_path(params, 'mycobank_sanctioned_names_ef'))
 
     def taxa_by_rank(self, args) -> None:
         """Get number of genomes and taxa at each rank."""
@@ -185,8 +178,8 @@ class OptionsParser():
             self.qc_genomes(args)
         elif args.subparser_name == 'cdn_select_sp_reps':
             self.cdn_select_sp_reps(args)
-        elif args.subparser_name == 'cdn_sp_clusters':
-            self.cdn_sp_clusters(args)
+        elif args.subparser_name == 'cdn_cluster_named_sp':
+            self.cdn_cluster_named_sp(args)
         elif args.subparser_name == 'u_qc_genomes':
             self.qc_genomes(args)
         elif args.subparser_name == 'taxa_by_rank':
@@ -194,6 +187,5 @@ class OptionsParser():
         elif args.subparser_name == 'plot_genome_stats':
             self.plot_genome_stats(args)
         else:
-            self.log.error(
-                f'Unknown gtdb_species_clusters command: {args.subparser_name}\n')
+            self.log.error(f'Unknown command: {args.subparser_name}\n')
             sys.exit()

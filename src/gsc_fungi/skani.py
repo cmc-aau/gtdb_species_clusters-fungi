@@ -208,3 +208,119 @@ class Skani():
                 ani_af[qid][rid] = (ani, af_r, af_q)
 
         return ani_af
+
+    def search(self, 
+                query_paths: Dict[str, str], 
+                ref_paths: Dict[str, str],
+                output_dir: str, 
+                preset: str,
+                min_af: float = 50,
+                min_sketch_ani:float = 85):
+        """Calculate skani between query and reference genomes.
+        
+        Since skani is symmetric each pair of genomes is only processed once. That is,
+        genome A and genome B will be processed with skani as (A,B) or (B,A), but not
+        both since they will give the same result. Representative genomes are first
+        sketched and then the query genomes searched against this DB. This is slower
+        than using "dist" but keeps memory usage much more reasonable.
+        """
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        log_str = f'Calculating ANI between {len(query_paths):,} query and {len(ref_paths):,} reference genomes'
+        log_str += f' ({preset}; min_af = {min_af}; s = {min_sketch_ani}):'
+        self.log.info(log_str)
+
+        try:
+            # create file with path to reference genomes
+            self.log.info(' - creating file with path to reference genomes')
+            rep_path_file = os.path.join(output_dir, 'skani_ref_genome_paths.tsv')
+            fout = open(rep_path_file, 'w')
+            for gp in ref_paths.values():
+                fout.write(f'{gp}\n')
+            fout.close()
+
+            # create file with path to query genomes
+            self.log.info(' - creating file with path to query genomes')
+            query_path_file = os.path.join(output_dir, 'skani_query_genome_paths.tsv')
+            fout = open(query_path_file, 'w')
+            for gid, gp in query_paths.items():
+                if gid in ref_paths and ref_paths[gid] != gp:
+                    self.log.error(f'Genome ID {gid} has different genomic FASTA files for query and reference.')
+                    sys.exit(1)
+                fout.write(f'{gp}\n')
+            fout.close()
+            
+            # sketch the reference genomes
+            self.log.info(' - sketching reference genomes')
+            sketch_dir = os.path.join(output_dir, 'skani_ref_sketches')
+            cmd = ['skani', 'sketch',
+                    '-t', str(self.cpus), 
+                    '-l', rep_path_file,
+                    '-o', sketch_dir]
+
+            if preset is not None:
+                cmd += [preset]
+
+            proc = subprocess.Popen(cmd,
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE,
+                                        encoding='utf-8')
+            _stdout, stderr = proc.communicate()
+            if proc.returncode != 0:  # skani returned an error code
+                print(stderr)
+                raise ANIError(f"skani sketch exited with code {proc.returncode}.")
+            
+            # search query genomes against reference genome sketches
+            self.log.info(' - calculating ANI and AF between reference and query genomes')
+            results_file = os.path.join(output_dir, 'skani_query_vs_ref.tsv')
+            cmd = ['skani', 'search',
+                    '-t', str(self.cpus), 
+                    '-d', sketch_dir,
+                    '--ql', query_path_file,
+                    '-o', results_file,
+                    '--min-af', str(min_af),
+                    '-s', str(min_sketch_ani)]
+            proc = subprocess.Popen(cmd,
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE,
+                                        encoding='utf-8')
+            _stdout, stderr = proc.communicate()
+            if proc.returncode != 0:  # skani returned an error code
+                print(stderr)
+                raise ANIError(f"skani search exited with code {proc.returncode}.")
+        except Exception as e:
+            print(e)
+            raise
+
+        # get map from genome path to genome ID
+        gp_to_gid_map = {}
+        for gid, gp in query_paths.items():
+            gp_to_gid_map[gp] = gid
+        for gid, gp in ref_paths.items():
+            gp_to_gid_map[gp] = gid
+
+        # parse skani results
+        self.log.info(' - parsing skani results')
+        ani_af = defaultdict(dict)
+        with open(results_file) as f:
+            header = f.readline().strip().split('\t')
+
+            ref_file_idx = header.index('Ref_file')
+            query_file_idx = header.index('Query_file')
+            ani_idx = header.index('ANI')
+            af_r_idx = header.index('Align_fraction_ref')
+            af_q_idx = header.index('Align_fraction_query')
+
+            for line in f:
+                tokens = line.strip().split('\t')
+
+                rid = gp_to_gid_map[tokens[ref_file_idx]]
+                qid = gp_to_gid_map[tokens[query_file_idx]]
+                ani = float(tokens[ani_idx])
+                af_r = float(tokens[af_r_idx])
+                af_q = float(tokens[af_q_idx])
+
+                ani_af[qid][rid] = (ani, af_r, af_q)
+
+        return ani_af

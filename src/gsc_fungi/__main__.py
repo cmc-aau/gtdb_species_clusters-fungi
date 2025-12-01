@@ -47,9 +47,10 @@ def print_help():
     print('''\
 
     Create de novo species clusters:
-     cdn_qc_genomes     -> Quality check genomes
-     cdn_select_sp_reps -> Select species representative genomes
-     cdn_sp_clusters    -> Create ANI-based species clusters
+     cdn_qc_genomes       -> Quality check genomes
+     cdn_select_sp_reps   -> Select species representative genomes
+     cdn_cluster_named_sp -> Create ANI-based species clusters for named species representatives
+     cdn_cluster_de_novo  -> Infer de novo species clusters and representatives for remaining genomes
 
     Update species clusters:
       u_qc_genomes -> Quality check genomes
@@ -99,20 +100,20 @@ if __name__ == '__main__':
         '--max_ambiguous_perc', help='maximum percentage of ambiguous bases', type=float, default=Defaults.QC_MAX_AMBIGUOUS_PERC)
     cdn_qc_genomes_parser.add_argument('--silent', help="suppress output", action='store_true')
 
-    # quality check genomes
+    # select species representative genomes
     cdn_select_sp_reps_parser = subparsers.add_parser('cdn_select_sp_reps',
                                                 formatter_class=CustomHelpFormatter,
                                                 description='Select species representative genomes.')
     cdn_select_sp_reps_parser.add_argument('input_params_file', help='TOML file indicating input parameters')
     cdn_select_sp_reps_parser.add_argument('--silent', help="suppress output", action='store_true')
 
-    # quality check genomes
-    cdn_sp_clusters_parser = subparsers.add_parser('cdn_sp_clusters',
+    # create ANI-based species clusters for named species representatives
+    cdn_cluster_named_sp_parser = subparsers.add_parser('cdn_cluster_named_sp',
                                                 formatter_class=CustomHelpFormatter,
-                                                description='Create ANI-based species clusters.')
-    cdn_sp_clusters_parser.add_argument('input_params_file', help='TOML file indicating input parameters')
-    cdn_sp_clusters_parser.add_argument('-c', '--cpus', help='number of CPUs', default=1)
-    cdn_sp_clusters_parser.add_argument('--silent', help="suppress output", action='store_true')
+                                                description='Create ANI-based species clusters for named species representatives.')
+    cdn_cluster_named_sp_parser.add_argument('input_params_file', help='TOML file indicating input parameters')
+    cdn_cluster_named_sp_parser.add_argument('-c', '--cpus', help='number of CPUs', default=1)
+    cdn_cluster_named_sp_parser.add_argument('--silent', help="suppress output", action='store_true')
 
     # quality check genomes
     u_qc_genomes_parser = subparsers.add_parser('u_qc_genomes',

@@ -28,10 +28,11 @@ from gsc_fungi import defaults as Defaults
 from gsc_fungi.genome_utils import read_genome_path
 from gsc_fungi.skani import Skani
 from gsc_fungi.ncbi import parse_gid_to_ncbi_sp
+from gsc_fungi import mycobank as Mycobank
 
 
-class SpeciesClusters():
-    """Create ANI-based species clusters."""
+class ClusterNamedSpecies():
+    """Create ANI-based species clusters for named species representatives."""
 
     def __init__(self, cpus: int, out_dir: str):
         """Initialization.
@@ -62,12 +63,23 @@ class SpeciesClusters():
         """Calculate pairwise ANI between genomes."""
 
         if True: # *** DEBUGGING
-            genomi_files_qc = {gid: gf for gid, gf in genome_files.items() if gid in gids}
-            ani_af = self.skani.triangle(genomi_files_qc, 
-                                            self.out_dir, 
-                                            preset = Defaults.SKANI_PRESET,
-                                            min_af = Defaults.AF_SP,
-                                            min_sketch_ani = Defaults.SKANI_PREFILTER_THRESHOLD)
+            genomic_files_qc = {gid: gf for gid, gf in genome_files.items() if gid in gids}
+
+            # Skani triangle would be faster, but requires substantially more memory
+            #ani_af = self.skani.triangle(genomi_files_qc, 
+            #                                self.out_dir, 
+            #                                preset = Defaults.SKANI_PRESET,
+            #                                min_af = Defaults.AF_SP,
+            #                                min_sketch_ani = Defaults.SKANI_PREFILTER_THRESHOLD)
+
+            ani_af = self.skani.search(
+                genomic_files_qc,
+                genomic_files_qc,
+                self.out_dir, 
+                preset = Defaults.SKANI_PRESET,
+                min_af = Defaults.AF_SP,
+                min_sketch_ani = Defaults.SKANI_PREFILTER_THRESHOLD)
+
             pickle.dump(ani_af, open(os.path.join(self.out_dir, 'ani_af.pkl'), 'wb'))
         else:
             ani_af = pickle.load(
@@ -138,7 +150,9 @@ class SpeciesClusters():
                         sp_to_rid: Dict[str, str], 
                         sp_type_strains: Dict[str, Set[str]], 
                         ani_threshold: float, 
-                        af_threshold: float) -> List[str]:
+                        af_threshold: float,
+                        mycobank_data: Dict[str, MyycoBank.MycoBankMetadata],
+                        sanctioned_names: Set[str]) -> List[str]:
         """Resolve naming priority for species representatives merged at a given ANI and AF threshold."""
 
         # determine representatives that will be merged at ANI and AF thresholds
@@ -420,7 +434,10 @@ class SpeciesClusters():
             qc_pass_file: str,
             sp_rep_file: str,
             ncbi_taxonomy_file: str,
-            genome_path_file: str) -> None:
+            genome_path_file: str,
+            mycobank_file: str,
+            mycobank_sanctioned_names_persoon_file: str,
+            mycobank_sanctioned_names_ef_file: str) -> None:
         """Create ANI-based species clusters."""
 
         # read genomes passing QC
@@ -452,6 +469,18 @@ class SpeciesClusters():
         gid_to_ncbi_sp = parse_gid_to_ncbi_sp(ncbi_taxonomy_file)
         self.log.info(f' - identified NCBI species for {len(gid_to_ncbi_sp):,} genomes')
 
+        # read list of sanctioned names that always have naming priority
+        self.log.info('Reading sanctioned names:')
+        sanctioned_names = Mycobank.read_sanctioned_names(mycobank_sanctioned_names_persoon_file)
+        sanctioned_names.update(Mycobank.read_sanctioned_names(mycobank_sanctioned_names_ef_file))
+        self.log.info(f' - read {len(sanctioned_names):,} sanctioned names')
+
+        # read MycoBank nomenclature information used to 
+        # resolve naming priority
+        self.log.info('Reading MycoBank data:')
+        mycobank_data = Mycobank.parse_mycobank_data(mycobank_file)
+        self.log.info(f' - read data for {len(mycobank_data):,} genera and species')
+
         # create species cluters
         self.log.info('Creating species cluters at different ANI thresholds:')
         for ani_threshold in [95]: #*** range(92, 100):
@@ -464,7 +493,9 @@ class SpeciesClusters():
                                                             sp_to_rid, 
                                                             sp_type_strains, 
                                                             ani_threshold, 
-                                                            Defaults.AF_SP)
+                                                            Defaults.AF_SP,
+                                                            mycobank_data,
+                                                            sanctioned_names)
 
             # cluster genomes making sure to select species representative genomes with naming priority
             self.log.info(' - determining species clusters')
