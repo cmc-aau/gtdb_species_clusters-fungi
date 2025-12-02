@@ -16,9 +16,11 @@
 ###############################################################################
 
 import os
+import sys
 import re
 import logging
 import subprocess
+import shutil
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Tuple, List, Dict, TypeAlias
@@ -219,7 +221,8 @@ class Skani():
                 output_dir: str, 
                 preset: str,
                 min_af: float = 50,
-                min_sketch_ani:float = 85) -> SkaniResults:
+                min_sketch_ani: float = 85,
+                remove_sketches: bool = False) -> SkaniResults:
         """Calculate skani between query and reference genomes.
         
         Since skani is symmetric each pair of genomes is only processed once. That is,
@@ -284,7 +287,8 @@ class Skani():
                     '--ql', query_path_file,
                     '-o', results_file,
                     '--min-af', str(min_af),
-                    '-s', str(min_sketch_ani)]
+                    '-s', str(min_sketch_ani),
+                    '--short-header']
             proc = subprocess.Popen(cmd,
                                         stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE,
@@ -326,5 +330,9 @@ class Skani():
                 af_q = float(tokens[af_q_idx])
 
                 ani_af[qid][rid] = (ani, af_r, af_q)
+
+        # remove sketch directory if requested
+        if remove_sketches:
+            shutil.rmtree(sketch_dir)
 
         return ani_af

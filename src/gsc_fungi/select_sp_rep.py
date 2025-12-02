@@ -16,7 +16,7 @@
 ###############################################################################
 
 import os
-import gzip
+import sys
 import logging
 from collections import defaultdict
 from dataclasses import dataclass

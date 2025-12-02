@@ -16,13 +16,12 @@
 ###############################################################################
 
 import os
-import gzip
 import logging
 from collections import defaultdict, Counter
 from dataclasses import dataclass
 from typing import Dict, Set, Tuple
 
-from gtdblib.util.bio.accession import canonical_gid, is_same_accn_version
+from gtdblib.util.bio.accession import canonical_gid
 
 from gsc_fungi.genome import GenomeMetadata, assembly_quality, assembly_score
 from gsc_fungi.ncbi import parse_gid_to_ncbi_sp, MetadataNCBI, NCBI_EXCLUSION_FILTERING_CRITERIA, NCBI_COMPLETE_GENOME, NCBI_ENV_GENOME

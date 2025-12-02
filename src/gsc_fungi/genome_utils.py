@@ -16,10 +16,7 @@
 ###############################################################################
 
 import os
-from collections import namedtuple
 from typing import Dict, Set, Optional
-
-from gtdblib.util.bio.accession import canonical_gid
 
 
 def read_genome_path(genome_path_file: str, gids_of_interest: Optional[Set[str]] = None) -> Dict[str, str]:

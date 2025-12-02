@@ -16,6 +16,7 @@
 ###############################################################################
 
 import os
+import sys
 import logging
 import pickle
 from itertools import combinations
@@ -76,7 +77,8 @@ class ClusterNamedSpecies():
                 self.out_dir, 
                 preset = Defaults.SKANI_PRESET,
                 min_af = Defaults.AF_SP,
-                min_sketch_ani = Defaults.SKANI_PREFILTER_THRESHOLD)
+                min_sketch_ani = Defaults.SKANI_PREFILTER_THRESHOLD,
+                remove_sketches = True)
 
             pickle.dump(ani_af, open(os.path.join(self.out_dir, 'ani_af.pkl'), 'wb'))
         else:
@@ -142,6 +144,60 @@ class ClusterNamedSpecies():
         
         return Mycobank.UNDETERMINED_NAMING_PRIORITY, '<priority must be manually resolved>'
 
+    def created_priority_order_list(self, priority_pairs: List[Tuple[str, str]]) -> List[str]:
+        """Generate list that preserves all priority constraints.
+       
+        Generate list of species representative genomes sorted such
+        that genomes with naming priority come before any
+        genome they would be merged with it. Note that this is NOT
+        a fully sorted list by naming priority. The only guarantee
+        in ordering is between species (representative genomes) 
+        that will be merged.
+
+        Sorts items based on a list of dependency tuples (high_priority, low_priority).
+        Uses Kahn's Algorithm for Topological Sorting.
+        """
+
+        # 1. Build the graph and calculate in-degrees
+        graph = defaultdict(list)
+        in_degree = defaultdict(int)
+        all_items = set()
+
+        for high_prio, low_prio in priority_pairs:
+            graph[high_prio].append(low_prio)
+            in_degree[low_prio] += 1
+            all_items.add(high_prio)
+            all_items.add(low_prio)
+
+        # Initialize in-degree of items with no incoming edges to 0 if not set
+        for item in all_items:
+            if item not in in_degree:
+                in_degree[item] = 0
+
+        # 2. Initialize the queue with items that have 0 dependencies (highest priority).
+        # Queue is sorted alphabetically so ties are broken in a deterministic fashion.
+        queue = deque(sorted([item for item in all_items if in_degree[item] == 0]))
+        
+        # 3. Process the queue
+        sorted_order = []
+        while queue:
+            current = queue.popleft()
+            sorted_order.append(current)
+
+            for neighbor in graph[current]:
+                in_degree[neighbor] -= 1
+                # If the neighbor has no more prerequisites, add to queue
+                if in_degree[neighbor] == 0:
+                    queue.append(neighbor)
+
+        # 4. Check for cycles
+        # If the result length doesn't match the number of unique items, 
+        # there is a circular dependency (e.g., A > B and B > A).
+        if len(sorted_order) != len(all_items):
+            raise ValueError("Cycle detected: priority sorting could not be established.")
+
+        return sorted_order
+
     def merge_sp_reps(self,
                         ani_af: Dict[str, Dict[str, List[float]]], 
                         rid_to_sp: Dict[str, str], 
@@ -184,12 +240,12 @@ class ClusterNamedSpecies():
 
         fout = open(os.path.join(self.out_dir, f'species_merged-genus_counts-ani{ani_threshold}_af{af_threshold}.tsv'), 'w')
         fout.write('ncbi_genus\tnum_species_merged\tmerged_species_perc\tncbi_species\n')
-        for genus, count in sorted(genus_merged_spp.items(), key=lambda kv: len(kv[1]), reverse=True):
+        for genus, spp in sorted(genus_merged_spp.items(), key=lambda kv: len(kv[1]), reverse=True):
             fout.write('{}\t{}\t{:.2f}\t{}\n'.format(
                 genus,
-                len(genus_merged_spp[genus]),
-                100.0*len(genus_merged_spp[genus]) / len(merged_spp),
-                ','.join(sorted(genus_merged_spp[genus]))
+                len(spp),
+                100.0*len(spp) / len(merged_spp),
+                ','.join(sorted(spp))
             ))
         fout.close()
 
@@ -205,19 +261,19 @@ class ClusterNamedSpecies():
             for sp2 in sorted(merged_pair[sp1]):
                 ani, af = merged_pair[sp1][sp2]
 
-                sp1_norm = normalize_species_name(sp1)
-                year1 = mycobank_data[sp1_norm].year_publication if sp1_norm in mycobank_data else YEAR_UNKNOWN
-                name_status1 = mycobank_data[sp1_norm].name_status if sp1_norm in mycobank_data else NOT_IN_MYCOBANK
+                sp1_norm = self.normalize_species_name(sp1)
+                year1 = mycobank_data[sp1_norm].year_publication if sp1_norm in mycobank_data else Mycobank.YEAR_UNKNOWN
+                name_status1 = mycobank_data[sp1_norm].name_status if sp1_norm in mycobank_data else Mycobank.NOT_IN_MYCOBANK
                 type_strain1 = sp1 in sp_type_strains
                 sanctioned_name1 = sp1 in sanctioned_names
 
-                sp2_norm = normalize_species_name(sp2)
-                year2 = mycobank_data[sp2_norm].year_publication if sp2_norm in mycobank_data else YEAR_UNKNOWN
-                name_status2 = mycobank_data[sp2_norm].name_status if sp2_norm in mycobank_data else NOT_IN_MYCOBANK
+                sp2_norm = self.normalize_species_name(sp2)
+                year2 = mycobank_data[sp2_norm].year_publication if sp2_norm in mycobank_data else Mycobank.YEAR_UNKNOWN
+                name_status2 = mycobank_data[sp2_norm].name_status if sp2_norm in mycobank_data else Mycobank.NOT_IN_MYCOBANK
                 type_strain2 = sp2 in sp_type_strains
                 sanctioned_name2 = sp2 in sanctioned_names
 
-                priority_sp, reason = resolve_naming_priority(
+                priority_sp, reason = self.resolve_naming_priority(
                     sp1, year1, name_status1, type_strain1, sanctioned_name1,
                     sp2, year2, name_status2, type_strain2, sanctioned_name2)
                 
@@ -225,7 +281,7 @@ class ClusterNamedSpecies():
                     priority_rids.append((sp_to_rid[sp1], sp_to_rid[sp2]))
                 elif priority_sp == sp2:
                     priority_rids.append((sp_to_rid[sp2], sp_to_rid[sp1]))
-                elif priority_sp == UNDETERMINED_NAMING_PRIORITY:
+                elif priority_sp == Mycobank.UNDETERMINED_NAMING_PRIORITY:
                     undetermined_priority_count += 1
 
                 fout.write('{}\t{}\t{}\t{}\t{}\t{}'.format(
@@ -258,33 +314,16 @@ class ClusterNamedSpecies():
         self.log.info(f' - undetermined_priority_count: {undetermined_priority_count:,}')
 
         # generate list of species representative genomes sorted such
-        # that genomes with naming priority allows come before any
-        # genome they would be merged with. Note that this is NOT
+        # that genomes with naming priority come before any
+        # genome they would be merged with it. Note that this is NOT
         # a fully sorted list by naming priority. The only guarantee
         # in ordering is between species (representative genomes) 
         # that will be merged.
-        rids_by_priority = deque()
-        for rid1, rid2 in priority_rids:
-            if rid1 not in rids_by_priority:
-                rids_by_priority.appendleft(rid1)
-            
-            if rid2 not in rids_by_priority:
-                rids_by_priority.append(rid2)
-
-            if rid1 in rids_by_priority and rid2 in rids_by_priority:
-                rid1_idx = rids_by_priority.index(rid1)
-                rid2_idx = rids_by_priority.index(rid2)
-
-                # check if elements need to be swapped to ensure correct ordering
-                if rid1_idx > rid2_idx:
-                    rids_by_priority[rid1_idx], rids_by_priority[rid2_idx] = rids_by_priority[rid2_idx], rids_by_priority[rid1_idx]
-
-            # ensure expected sorting gaurantee is obtained
-            assert rids_by_priority.index(rid1) < rids_by_priority.index(rid2)
+        rids_by_priority = self.created_priority_order_list(priority_rids)
 
         # sanity check that sorting gaurantee is obtained
         for rid1, rid2 in priority_rids:
-            rids_by_priority.index(rid1) < rids_by_priority.index(rid2)
+            assert rids_by_priority.index(rid1) < rids_by_priority.index(rid2)
 
         return list(rids_by_priority)
 
