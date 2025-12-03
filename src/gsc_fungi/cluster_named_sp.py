@@ -98,7 +98,8 @@ class ClusterNamedSpecies():
 
         return sp_name.replace('[', '').replace(']', '')
 
-    def resolve_naming_priority(sp1: str, 
+    def resolve_naming_priority(self,
+                                sp1: str, 
                                 year1: int, 
                                 name_status1: str, 
                                 type_strain1: bool, 
@@ -311,7 +312,7 @@ class ClusterNamedSpecies():
 
         fout.close()
 
-        self.log.info(f' - undetermined_priority_count: {undetermined_priority_count:,}')
+        self.log.info(f' - undetermined priority count: {undetermined_priority_count:,}')
 
         # generate list of species representative genomes sorted such
         # that genomes with naming priority come before any
