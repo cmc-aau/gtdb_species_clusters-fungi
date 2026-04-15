@@ -88,7 +88,8 @@ class OptionsParser():
             args.min_quality,
             args.max_contigs,
             args.min_N50,
-            args.max_ambiguous_perc)
+            args.max_ambiguous_perc,
+            args.skip_ncbi_exclusion)
 
         p = QcGenomes(out_dir)
         p.run(self.args_abs_path(params, 'genome_metadata_file'),

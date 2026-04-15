@@ -37,6 +37,7 @@ class QcCriteria:
     :param max_contigs: Maximum number of contigs to pass QC.
     :param min_N50: Minimum N50 to pass QC.
     :param max_ambiguous_perc: Maximum percentage of ambiguous bases to pass QC.
+    :param skip_ncbi_exclusion: Skip filtering of genomes based on NCBI metadata.
     """
 
     min_comp: float
@@ -45,6 +46,7 @@ class QcCriteria:
     max_contigs: int
     min_N50: int
     max_ambiguous_perc: float
+    skip_ncbi_exclusion: bool
 
 
 @dataclass
@@ -224,9 +226,10 @@ class QcGenomes():
             # check if genome should be filtered based on the RefSeq excluded assignments at NCBI
             refseq_exclusion_tokens = m.ncbi.excluded_from_refseq
             refseq_exclude = False
-            for t in refseq_exclusion_tokens:
-                if t in NCBI_EXCLUSION_FILTERING_CRITERIA:
-                    refseq_exclude = True
+            if not qc_criteria.skip_ncbi_exclusion:
+                for t in refseq_exclusion_tokens:
+                    if t in NCBI_EXCLUSION_FILTERING_CRITERIA:
+                        refseq_exclude = True
 
             if (m.completness >= qc_criteria.min_comp
                 and m.contamination <= qc_criteria.max_cont
