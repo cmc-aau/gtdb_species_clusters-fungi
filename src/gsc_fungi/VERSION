@@ -1,3 +1,6 @@
+0.1.2
+- added flag to retain hybrid genomes (e.g. Saccharomyces cerevisiae x Saccharomyces eubayanus) during QC and to remove these by default
+
 0.1.1
 - added skip_ncbi_exclusion flag to QC subcommand
 

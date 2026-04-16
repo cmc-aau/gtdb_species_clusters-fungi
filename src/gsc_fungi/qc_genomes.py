@@ -38,6 +38,7 @@ class QcCriteria:
     :param min_N50: Minimum N50 to pass QC.
     :param max_ambiguous_perc: Maximum percentage of ambiguous bases to pass QC.
     :param skip_ncbi_exclusion: Skip filtering of genomes based on NCBI metadata.
+    :param keep_hybrids: Do not automatically filter hybrid genomes.
     """
 
     min_comp: float
@@ -47,6 +48,7 @@ class QcCriteria:
     min_N50: int
     max_ambiguous_perc: float
     skip_ncbi_exclusion: bool
+    keep_hybrids: bool
 
 
 @dataclass
@@ -200,6 +202,7 @@ class QcGenomes():
     def qc_genomes(self, 
                     genome_metadata: Dict[str, GenomeMetadata], 
                     gid_to_sp: Dict[str, str],
+                    hybrid_gids: Set[str],
                     qc_criteria: QcCriteria) -> Tuple[Set[str], Set[str], Dict[str, int]]:
         """Determine genomes passing and failing QC."""
 
@@ -214,15 +217,17 @@ class QcGenomes():
 
         fout_passed.write(header + '\n')
         fout_failed.write(header)
-        fout_failed.write(
-            '\tfailed_completeness\tfailed_contamination\tfailed_quality')
-        fout_failed.write(
-            '\tfailed_contig_count\tfailed_contig_n50\tfailed_ambiguous_bases_perc\tfailed_refseq_exclude\n')
+        fout_failed.write('\tfailed_completeness\tfailed_contamination\tfailed_quality')
+        fout_failed.write('\tfailed_contig_count\tfailed_contig_n50\tfailed_ambiguous_bases_perc')
+        fout_failed.write('\tfailed_refseq_exclude\tfailed_hybrid_species\n')
 
         qc_pass = set()
         qc_fail = set()
         failed_gids = defaultdict(set)
         for gid, m in genome_metadata.items():
+            # check if genome should be failed as being from a hybrid species
+            hybrid_exclude = not qc_criteria.keep_hybrids and gid in hybrid_gids
+
             # check if genome should be filtered based on the RefSeq excluded assignments at NCBI
             refseq_exclusion_tokens = m.ncbi.excluded_from_refseq
             refseq_exclude = False
@@ -237,7 +242,8 @@ class QcGenomes():
                 and m.contig_count <= qc_criteria.max_contigs
                 and m.n50_contigs >= qc_criteria.min_N50
                 and m.ambiguous_base_perc <= qc_criteria.max_ambiguous_perc
-                and not refseq_exclude):
+                and not refseq_exclude
+                and not hybrid_exclude):
                 qc_pass.add(gid)
 
                 fout_passed.write('{}\t{}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format(
@@ -314,6 +320,12 @@ class QcGenomes():
 
                 if refseq_exclude:
                     failed_gids['refseq_exclude'].add(gid)
+                    fout_failed.write('\tTrue')
+                else:
+                    fout_failed.write('\tFalse')
+
+                if hybrid_exclude:
+                    failed_gids['hybrid_exclude'].add(gid)
                     fout_failed.write('\tTrue')
                 else:
                     fout_failed.write('\tFalse')
@@ -431,6 +443,15 @@ class QcGenomes():
         self.log.info('Parsing NCBI species assignments:')
         gid_to_sp = parse_gid_to_ncbi_sp(ncbi_taxonomy_file)
 
+        # determine hybrid genomes
+        self.log.info('Identifying genomes from hybrid species:')
+        hybrid_gids = set()
+        for gid, sp in gid_to_sp.items():
+            if ' x ' in sp:
+                hybrid_gids.add(gid)
+        self.log.info(f' - identified {len(hybrid_gids):,} genomes from hybrid species')
+
+        # determine genomes in each species
         sp_to_gids = defaultdict(set)
         for gid, sp in gid_to_sp.items():
             if gid in genome_metadata:
@@ -442,7 +463,10 @@ class QcGenomes():
 
         # determine genomes passing and failing QC
         self.log.info('Determining genomes passing and failing QC.')
-        qc_pass, qc_fail, failed_gids = self.qc_genomes(genome_metadata, gid_to_sp, qc_criteria)
+        qc_pass, qc_fail, failed_gids = self.qc_genomes(genome_metadata, 
+                                                        gid_to_sp,
+                                                        hybrid_gids, 
+                                                        qc_criteria)
         self.log.info(f' - identified {len(qc_pass):,} genomes passing and {len(qc_fail):,} genomes failing QC')
 
         # determine species with no remaining genomes after QC
