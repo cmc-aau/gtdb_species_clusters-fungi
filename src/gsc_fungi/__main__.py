@@ -100,6 +100,8 @@ if __name__ == '__main__':
         '--max_ambiguous_perc', help='maximum percentage of ambiguous bases', type=float, default=Defaults.QC_MAX_AMBIGUOUS_PERC)
     cdn_qc_genomes_parser.add_argument(
         '--skip_ncbi_exclusion', help='do not filter genomes based on NCBI metadata', action='store_true')
+    cdn_qc_genomes_parser.add_argument(
+        '--keep_hybrids', help='do not automatically filter hybrid genomes', action='store_true')
     cdn_qc_genomes_parser.add_argument('--silent', help="suppress output", action='store_true')
 
     # select species representative genomes
