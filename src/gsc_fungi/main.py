@@ -86,6 +86,7 @@ class OptionsParser():
             args.min_comp,
             args.max_cont,
             args.min_quality,
+            args.min_perc_markers,
             args.max_contigs,
             args.min_N50,
             args.max_ambiguous_perc,
@@ -95,6 +96,7 @@ class OptionsParser():
         p = QcGenomes(out_dir)
         p.run(self.args_abs_path(params, 'genome_metadata_file'),
                 self.args_abs_path(params, 'busco_file'),
+                self.args_abs_path(params, 'marker_set_stats_file'),
                 self.args_abs_path(params, 'ncbi_assembly_summary_genbank_file'),
                 self.args_abs_path(params, 'ncbi_taxonomy_file'),
                 qc_criteria)

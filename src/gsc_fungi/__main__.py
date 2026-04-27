@@ -93,6 +93,8 @@ if __name__ == '__main__':
     cdn_qc_genomes_parser.add_argument(
         '--min_quality', help='minimum genome quality (comp - 5*cont) [0, 100]', type=float, default=Defaults.QC_MIN_QUALITY)
     cdn_qc_genomes_parser.add_argument(
+        '--min_perc_markers', help='minimum percentage of fun77 marker genes [0, 100]', type=float, default=Defaults.QC_MIN_PERC_MARKERS)
+    cdn_qc_genomes_parser.add_argument(
         '--max_contigs', help='maximum number of contigs', type=int, default=Defaults.QC_MAX_CONTIGS)
     cdn_qc_genomes_parser.add_argument(
         '--min_N50', help='minimum N50 of scaffolds', type=int, default=Defaults.QC_MIN_N50)
@@ -130,6 +132,8 @@ if __name__ == '__main__':
         '--max_cont', help='maximum contamination of genome [0, 100]', type=float, default=Defaults.QC_MAX_CONT)
     u_qc_genomes_parser.add_argument(
         '--min_quality', help='minimum genome quality (comp - 5*cont) [0, 100]', type=float, default=Defaults.QC_MIN_QUALITY)
+    u_qc_genomes_parser.add_argument(
+        '--min_perc_markers', help='minimum percentage of fun77 marker genes [0, 100]', type=float, default=Defaults.QC_MIN_PERC_MARKERS)
     u_qc_genomes_parser.add_argument(
         '--max_contigs', help='maximum number of contigs', type=int, default=Defaults.QC_MAX_CONTIGS)
     u_qc_genomes_parser.add_argument(

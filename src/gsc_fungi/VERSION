@@ -1,3 +1,6 @@
+0.1.3
+- added marker set file to QC step to remove genomes with insufficient number of marker genes
+
 0.1.2
 - added flag to retain hybrid genomes (e.g. Saccharomyces cerevisiae x Saccharomyces eubayanus) during QC and to remove these by default
 

@@ -27,6 +27,9 @@ class GenomeMetadata:
     completness: float
     contamination: float
     genome_quality: float
+    marker_set_completness: float
+    marker_set_contamination: float
+    marker_set_quality: float
     genome_size: int
     contig_count: int
     n50_contigs: int

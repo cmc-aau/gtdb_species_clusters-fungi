@@ -24,7 +24,7 @@ from typing import Dict, Set, Tuple
 from gtdblib.util.bio.accession import canonical_gid
 
 from gsc_fungi.genome import GenomeMetadata, assembly_quality, assembly_score
-from gsc_fungi.ncbi import parse_gid_to_ncbi_sp, MetadataNCBI, NCBI_EXCLUSION_FILTERING_CRITERIA, NCBI_COMPLETE_GENOME, NCBI_ENV_GENOME
+from gsc_fungi.ncbi import parse_ncbi_taxonomy_file, MetadataNCBI, NCBI_EXCLUSION_FILTERING_CRITERIA, NCBI_COMPLETE_GENOME, NCBI_ENV_GENOME
 
 
 @dataclass
@@ -34,6 +34,7 @@ class QcCriteria:
     :param min_comp: Minimum estimated genome completeness to pass QC.
     :param max_cont: Maximum estimated genome contamination to pass QC.
     :param min_quality: Minimum estimated genome quality to pass QC, defined as completeness - 5*contamination.
+    :param min_perc_markers: minimum percentage of fun77 marker genes to pass QC.
     :param max_contigs: Maximum number of contigs to pass QC.
     :param min_N50: Minimum N50 to pass QC.
     :param max_ambiguous_perc: Maximum percentage of ambiguous bases to pass QC.
@@ -44,6 +45,7 @@ class QcCriteria:
     min_comp: float
     max_cont: float
     min_quality: float
+    min_perc_markers: float
     max_contigs: int
     min_N50: int
     max_ambiguous_perc: float
@@ -52,7 +54,7 @@ class QcCriteria:
 
 
 @dataclass
-class BuscoStats:
+class GenomeQualityStats:
     comp: float
     cont: float
     quality: float
@@ -114,7 +116,7 @@ class QcGenomes():
 
         return metadata_ncbi, excluded_from_refseq_count
 
-    def parse_busco_results(self, busco_file: str) -> Dict[str, BuscoStats]:
+    def parse_busco_results(self, busco_file: str) -> Dict[str, GenomeQualityStats]:
         """Parse Busco results and determine genome quality statistics."""
 
         busco_stats = {}
@@ -139,7 +141,7 @@ class QcGenomes():
                 comp = 100 * (num_complete + num_duplicate) / total_markers
                 cont = 100 * num_duplicate / total_markers
 
-                busco_stats[gid] = BuscoStats(
+                busco_stats[gid] = GenomeQualityStats(
                     comp,
                     cont,
                     assembly_quality(comp, cont)
@@ -147,9 +149,36 @@ class QcGenomes():
 
         return busco_stats
 
+    def parse_marker_stats_file(self, marker_set_stats_file: str) -> Dict[str, GenomeQualityStats]:
+        """Parse marker set stats file."""
+
+        marker_stats = {}
+        with open(marker_set_stats_file) as f:
+            header = f.readline().strip().split('\t')
+
+            comp_idx = header.index('Complete_pct')
+            cont_idx = header.index('Duplicated_pct')
+
+            for line in f:
+                tokens = line.strip().split('\t')
+
+                gid = tokens[0]
+
+                comp = float(tokens[comp_idx])
+                cont = float(tokens[cont_idx])
+
+                marker_stats[gid] = GenomeQualityStats(
+                    comp,
+                    cont,
+                    assembly_quality(comp, cont)
+                )
+
+        return marker_stats
+
     def parse_genome_metadata(self, 
                                 genome_metadata_file: str, 
-                                busco_results: Dict[str, BuscoStats], 
+                                busco_results: Dict[str, GenomeQualityStats],
+                                marker_stat_results: Dict[str, GenomeQualityStats],
                                 metadata_ncbi: Dict[str, MetadataNCBI]):
         """Read metadata for genome assemblies and combined with BUSCO and NCBI metadata."""
 
@@ -187,6 +216,9 @@ class QcGenomes():
                 genome_metadata[gid] = GenomeMetadata(busco_results[gid].comp,
                                                         busco_results[gid].cont,
                                                         busco_results[gid].quality,
+                                                        marker_stat_results[gid].comp,
+                                                        marker_stat_results[gid].cont,
+                                                        marker_stat_results[gid].quality,
                                                         genome_size,
                                                         contig_count,
                                                         n50,
@@ -201,7 +233,8 @@ class QcGenomes():
 
     def qc_genomes(self, 
                     genome_metadata: Dict[str, GenomeMetadata], 
-                    gid_to_sp: Dict[str, str],
+                    gid_to_ncbi_sp: Dict[str, str],
+                    gid_to_ncbi_taxonomy: Dict[str, str],
                     hybrid_gids: Set[str],
                     qc_criteria: QcCriteria) -> Tuple[Set[str], Set[str], Dict[str, int]]:
         """Determine genomes passing and failing QC."""
@@ -209,8 +242,8 @@ class QcGenomes():
         fout_passed = open(os.path.join(self.out_dir, 'qc_passed.tsv'), 'w')
         fout_failed = open(os.path.join(self.out_dir, 'qc_failed.tsv'), 'w')
 
-        header = 'gid\tncbi_species'
-        header += '\tassembly_score\tcompleteness\tcontamination\tquality'
+        header = 'gid\tncbi_species\tncbi_taxonomy'
+        header += '\tassembly_score\tcompleteness\tcontamination\tquality\tmarker_perc'
         header += '\tgenome_size\tcontig_count\tn50_contigs\tambiguous_base_perc'
         header += '\tncbi_relation_to_type_material\tncbi_refseq_category'
         header += '\tncbi_excluded_from_refseq\tncbi_assem_level'
@@ -218,6 +251,7 @@ class QcGenomes():
         fout_passed.write(header + '\n')
         fout_failed.write(header)
         fout_failed.write('\tfailed_completeness\tfailed_contamination\tfailed_quality')
+        fout_failed.write('\tfailed_marker_perc')
         fout_failed.write('\tfailed_contig_count\tfailed_contig_n50\tfailed_ambiguous_bases_perc')
         fout_failed.write('\tfailed_refseq_exclude\tfailed_hybrid_species\n')
 
@@ -239,6 +273,7 @@ class QcGenomes():
             if (m.completness >= qc_criteria.min_comp
                 and m.contamination <= qc_criteria.max_cont
                 and m.genome_quality >= qc_criteria.min_quality
+                and m.marker_set_completness >= qc_criteria.min_perc_markers
                 and m.contig_count <= qc_criteria.max_contigs
                 and m.n50_contigs >= qc_criteria.min_N50
                 and m.ambiguous_base_perc <= qc_criteria.max_ambiguous_perc
@@ -246,39 +281,43 @@ class QcGenomes():
                 and not hybrid_exclude):
                 qc_pass.add(gid)
 
-                fout_passed.write('{}\t{}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format(
+                fout_passed.write('{}\t{}\t{}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format(
                     gid,
-                    gid_to_sp[gid],
+                    gid_to_ncbi_sp[gid],
+                    gid_to_ncbi_taxonomy[gid],
                     m.assembly_score,
                     m.completness,
                     m.contamination,
                     m.genome_quality,
+                    m.marker_set_completness,
                     m.genome_size,
                     m.contig_count,
                     m.n50_contigs,
                     m.ambiguous_base_perc,
                     m.ncbi.relation_to_type_material,
                     m.ncbi.refseq_category,
-                    m.ncbi.excluded_from_refseq,
+                    "; ".join(m.ncbi.excluded_from_refseq),
                     m.ncbi.assem_level,
                 ))
             else:
                 qc_fail.add(gid)
 
-                fout_failed.write('{}\t{}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                fout_failed.write('{}\t{}\t{}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
                     gid,
-                    gid_to_sp[gid],
+                    gid_to_ncbi_sp[gid],
+                    gid_to_ncbi_taxonomy[gid],
                     m.assembly_score,
                     m.completness,
                     m.contamination,
                     m.genome_quality,
+                    m.marker_set_completness,
                     m.genome_size,
                     m.contig_count,
                     m.n50_contigs,
                     m.ambiguous_base_perc,
                     m.ncbi.relation_to_type_material,
                     m.ncbi.refseq_category,
-                    m.ncbi.excluded_from_refseq,
+                    "; ".join(m.ncbi.excluded_from_refseq),
                     m.ncbi.assem_level,
                 ))
 
@@ -296,6 +335,12 @@ class QcGenomes():
 
                 if m.genome_quality < qc_criteria.min_quality:
                     failed_gids['genome_quality'].add(gid)
+                    fout_failed.write('\tTrue')
+                else:
+                    fout_failed.write('\tFalse')
+
+                if m.marker_set_completness < qc_criteria.min_perc_markers:
+                    failed_gids['marker_perc'].add(gid)
                     fout_failed.write('\tTrue')
                 else:
                     fout_failed.write('\tFalse')
@@ -372,13 +417,19 @@ class QcGenomes():
                     lost_sp_by_reason['contamination'] += 1
                 if gids - failed_gids['genome_quality'] == set():
                     lost_sp_by_reason['genome_quality'] += 1
+                if gids - failed_gids['marker_perc'] == set():
+                    lost_sp_by_reason['marker_perc'] += 1
                 if gids - failed_gids['contig_count'] == set():
                     lost_sp_by_reason['contig_count'] += 1
                 if gids - failed_gids['n50_contigs'] == set():
                     lost_sp_by_reason['n50_contigs'] += 1
                 if gids - failed_gids['ambiguous_base_perc'] == set():
                     lost_sp_by_reason['ambiguous_base_perc'] += 1
-
+                if gids - failed_gids['refseq_exclude'] == set():
+                    lost_sp_by_reason['refseq_exclude'] += 1
+                if gids - failed_gids['hybrid_exclude'] == set():
+                    lost_sp_by_reason['hybrid_exclude'] += 1
+                
                 # write out information for each genome in failed species
                 for gid in qc_fail.intersection(gids):
                     m = genome_metadata[gid]
@@ -396,7 +447,7 @@ class QcGenomes():
                         m.ambiguous_base_perc,
                         m.ncbi.relation_to_type_material,
                         m.ncbi.refseq_category,
-                        m.ncbi.excluded_from_refseq,
+                        '; '.join(m.ncbi.excluded_from_refseq),
                         m.ncbi.assem_level,
                     ))
 
@@ -415,6 +466,7 @@ class QcGenomes():
     def run(self, 
             genome_metadata_file: str,
             busco_file: str, 
+            marker_set_stats_file: str,
             ncbi_assembly_file: str, 
             ncbi_taxonomy_file: str,
             qc_criteria: QcCriteria) -> None:
@@ -429,42 +481,48 @@ class QcGenomes():
         for reason, count in sorted(excluded_from_refseq_count.items(), key=lambda kv: kv[1], reverse=True):
             self.log.info(f' - {reason}: {count}')
 
-        # parse BUSCO resutls file
-        self.log.info('Paring BUSCO results file:')
+        # parse BUSCO results file
+        self.log.info('Parsing BUSCO results file:')
         busco_results = self.parse_busco_results(busco_file)
         self.log.info(f' - read BUSCO results for {len(busco_results):,} genomes')
 
+        # parse marker set stats file
+        self.log.info('Parsing marker set stats file:')
+        marker_set_stats = self.parse_marker_stats_file(marker_set_stats_file)
+        self.log.info(f' - read marker set stats for {len(marker_set_stats):,} genomes')
+
         # get genome metadata
         self.log.info('Parsing genome assembly metadata file:')
-        genome_metadata = self.parse_genome_metadata(genome_metadata_file, busco_results, metadata_ncbi)
+        genome_metadata = self.parse_genome_metadata(genome_metadata_file, busco_results, marker_set_stats, metadata_ncbi)
         self.log.info(f' - read metadata for {len(genome_metadata):,} genomes')
 
         # get genomes assigned to each species
         self.log.info('Parsing NCBI species assignments:')
-        gid_to_sp = parse_gid_to_ncbi_sp(ncbi_taxonomy_file)
+        gid_to_ncbi_taxonomy, gid_to_ncbi_sp = parse_ncbi_taxonomy_file(ncbi_taxonomy_file)
 
         # determine hybrid genomes
         self.log.info('Identifying genomes from hybrid species:')
         hybrid_gids = set()
-        for gid, sp in gid_to_sp.items():
+        for gid, sp in gid_to_ncbi_sp.items():
             if ' x ' in sp:
                 hybrid_gids.add(gid)
         self.log.info(f' - identified {len(hybrid_gids):,} genomes from hybrid species')
 
         # determine genomes in each species
         sp_to_gids = defaultdict(set)
-        for gid, sp in gid_to_sp.items():
+        for gid, sp in gid_to_ncbi_sp.items():
             if gid in genome_metadata:
                 sp_to_gids[sp].add(gid)
             else:
                 self.log.warning(f'Skipping genome {gid} for species {sp} as no genome metadata available.')
 
-        self.log.info(f' - identified {len(sp_to_gids):,} NCBI species across {len(gid_to_sp):,} genomes')
+        self.log.info(f' - identified {len(sp_to_gids):,} NCBI species across {len(gid_to_ncbi_sp):,} genomes')
 
         # determine genomes passing and failing QC
         self.log.info('Determining genomes passing and failing QC.')
         qc_pass, qc_fail, failed_gids = self.qc_genomes(genome_metadata, 
-                                                        gid_to_sp,
+                                                        gid_to_ncbi_sp,
+                                                        gid_to_ncbi_taxonomy,
                                                         hybrid_gids, 
                                                         qc_criteria)
         self.log.info(f' - identified {len(qc_pass):,} genomes passing and {len(qc_fail):,} genomes failing QC')

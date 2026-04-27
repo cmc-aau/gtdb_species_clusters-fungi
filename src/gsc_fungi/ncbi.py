@@ -72,3 +72,28 @@ def parse_gid_to_ncbi_sp(ncbi_taxonomy_file: str, gids_of_interest: Optional[Set
             gid_to_sp[gid] = sp
 
     return gid_to_sp
+
+
+def parse_ncbi_taxonomy_file(ncbi_taxonomy_file: str, gids_of_interest: Optional[Set[str]] = None) -> Dict[str, str]:
+    """Parse NCBI taxonomy file to determine species classification of each genome."""
+
+    gid_to_taxonomy = {}
+    gid_to_sp = {}
+    with open(ncbi_taxonomy_file) as f:
+        for line in f:
+            tokens = line.strip().split('\t')
+
+            gid = tokens[0]
+            if gid.startswith('GCF_'):
+                # GTDB Fungi DB is build strictly from genomes in GenBank
+                continue
+
+            if gids_of_interest is not None and gid not in gids_of_interest:
+                continue
+
+            sp = tokens[1].split(';')[-1]
+            assert sp.startswith('s__')
+            gid_to_sp[gid] = sp
+            gid_to_taxonomy[gid] = tokens[1]
+
+    return gid_to_taxonomy, gid_to_sp

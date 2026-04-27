@@ -117,6 +117,7 @@ class SelectSpeciesRepresentative():
             comp_idx = header.index('completeness')
             cont_idx = header.index('contamination')
             qual_idx = header.index('quality')
+            marker_perc_idx = header.index('marker_perc')
             genome_size_idx = header.index('genome_size')
             contig_count_idx = header.index('contig_count')
             n50_contigs_idx = header.index('n50_contigs')
@@ -135,6 +136,9 @@ class SelectSpeciesRepresentative():
                     float(tokens[comp_idx]),
                     float(tokens[cont_idx]),
                     float(tokens[qual_idx]),
+                    float(tokens[marker_perc_idx]),
+                    -1,
+                    -1,
                     int(tokens[genome_size_idx]),
                     int(tokens[contig_count_idx]),
                     int(tokens[n50_contigs_idx]),
