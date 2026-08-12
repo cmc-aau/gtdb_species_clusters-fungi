@@ -74,31 +74,29 @@ class OptionsParser():
         params = parse_toml_file(args.input_params_file)
 
         check_file_exists(self.args_abs_path(params, 'genome_metadata_file'))
-        check_file_exists(self.args_abs_path(params, 'busco_file'))
+        check_file_exists(self.args_abs_path(params, 'marker_set_stats_file'))
         check_file_exists(self.args_abs_path(params, 'ncbi_assembly_summary_genbank_file'))
         check_file_exists(self.args_abs_path(params, 'ncbi_taxonomy_file'))
+        check_file_exists(self.args_abs_path(params, 'qc_exception_list'))
+        check_file_exists(self.args_abs_path(params, 'hybrid_species_list'))
 
         out_dir = self.args_abs_path(params, args.subparser_name)
         make_sure_path_exists(out_dir)
         self.log.info(f"Output directory: {out_dir}")
 
         qc_criteria = QcCriteria(
-            args.min_comp,
-            args.max_cont,
-            args.min_quality,
+            args.max_perc_dup_markers,
             args.min_perc_markers,
-            args.max_contigs,
-            args.min_N50,
-            args.max_ambiguous_perc,
             args.skip_ncbi_exclusion,
             args.keep_hybrids)
 
         p = QcGenomes(out_dir)
         p.run(self.args_abs_path(params, 'genome_metadata_file'),
-                self.args_abs_path(params, 'busco_file'),
                 self.args_abs_path(params, 'marker_set_stats_file'),
                 self.args_abs_path(params, 'ncbi_assembly_summary_genbank_file'),
                 self.args_abs_path(params, 'ncbi_taxonomy_file'),
+                self.args_abs_path(params, 'qc_exception_list'),
+                self.args_abs_path(params, 'hybrid_species_list'),
                 qc_criteria)
 
     def cdn_select_sp_reps(self, args) -> None:

@@ -29,7 +29,7 @@ class MetadataNCBI:
 
 
 # Criteria for excluding or retaining genomes based on NCBI metadata
-NCBI_EXCLUSION_FILTERING_CRITERIA = set(['partial'])
+NCBI_EXCLUSION_FILTERING_CRITERIA = set(['partial', 'hybrid'])
 NCBI_COMPLETE_GENOME = 'Complete Genome'
 NCBI_ENV_GENOME = set(['derived from metagenome', 'derived from single cell'])
 
@@ -97,3 +97,9 @@ def parse_ncbi_taxonomy_file(ncbi_taxonomy_file: str, gids_of_interest: Optional
             gid_to_taxonomy[gid] = tokens[1]
 
     return gid_to_taxonomy, gid_to_sp
+
+
+def is_hybrid_species(sp: str) -> bool:
+    """Check if a species is a hybrid."""
+    return ' x ' in sp
+    

@@ -1,11 +1,6 @@
 # criteria for QC'ing genomes
-QC_MIN_COMP = 50
-QC_MAX_CONT = 10
-QC_MIN_QUALITY = 50
-QC_MIN_PERC_MARKERS = 30
-QC_MAX_CONTIGS = 10_000
-QC_MIN_N50 = 5000
-QC_MAX_AMBIGUOUS_PERC = 5
+QC_MAX_PERC_DUP_MARKERS = 10.0
+QC_MIN_PERC_MARKERS = 30.0
 
 # criteria for defining ANI-based species clusters
 ANI_SP = 95.0

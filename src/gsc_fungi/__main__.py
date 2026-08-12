@@ -87,19 +87,9 @@ if __name__ == '__main__':
                                                 description='Quality check genomes.')
     cdn_qc_genomes_parser.add_argument('input_params_file', help='TOML file indicating input parameters')
     cdn_qc_genomes_parser.add_argument(
-        '--min_comp', help='minimum completeness of genome [0, 100]', type=float, default=Defaults.QC_MIN_COMP)
+        '--max_perc_dup_markers', help='maximum percentage of duplicated, lineage-specific, single-copy genes [0, 100]', type=float, default=Defaults.QC_MAX_PERC_DUP_MARKERS)
     cdn_qc_genomes_parser.add_argument(
-        '--max_cont', help='maximum contamination of genome [0, 100]', type=float, default=Defaults.QC_MAX_CONT)
-    cdn_qc_genomes_parser.add_argument(
-        '--min_quality', help='minimum genome quality (comp - 5*cont) [0, 100]', type=float, default=Defaults.QC_MIN_QUALITY)
-    cdn_qc_genomes_parser.add_argument(
-        '--min_perc_markers', help='minimum percentage of fun77 marker genes [0, 100]', type=float, default=Defaults.QC_MIN_PERC_MARKERS)
-    cdn_qc_genomes_parser.add_argument(
-        '--max_contigs', help='maximum number of contigs', type=int, default=Defaults.QC_MAX_CONTIGS)
-    cdn_qc_genomes_parser.add_argument(
-        '--min_N50', help='minimum N50 of scaffolds', type=int, default=Defaults.QC_MIN_N50)
-    cdn_qc_genomes_parser.add_argument(
-        '--max_ambiguous_perc', help='maximum percentage of ambiguous bases', type=float, default=Defaults.QC_MAX_AMBIGUOUS_PERC)
+        '--min_perc_markers', help='minimum percentage of phylogenetic marker genes [0, 100]', type=float, default=Defaults.QC_MIN_PERC_MARKERS)
     cdn_qc_genomes_parser.add_argument(
         '--skip_ncbi_exclusion', help='do not filter genomes based on NCBI metadata', action='store_true')
     cdn_qc_genomes_parser.add_argument(
@@ -127,19 +117,13 @@ if __name__ == '__main__':
                                                 description='Quality check genomes.')
     u_qc_genomes_parser.add_argument('input_params_file', help='TOML file indicating input parameters')
     u_qc_genomes_parser.add_argument(
-        '--min_comp', help='minimum completeness of genome [0, 100]', type=float, default=Defaults.QC_MIN_COMP)
+        '--max_perc_dup_markers', help='maximum percentage of duplicated, lineage-specific, single-copy genes [0, 100]', type=float, default=Defaults.QC_MAX_PERC_DUP_MARKERS)
     u_qc_genomes_parser.add_argument(
-        '--max_cont', help='maximum contamination of genome [0, 100]', type=float, default=Defaults.QC_MAX_CONT)
+        '--min_perc_markers', help='minimum percentage of phylogenetic marker genes [0, 100]', type=float, default=Defaults.QC_MIN_PERC_MARKERS)
     u_qc_genomes_parser.add_argument(
-        '--min_quality', help='minimum genome quality (comp - 5*cont) [0, 100]', type=float, default=Defaults.QC_MIN_QUALITY)
+        '--skip_ncbi_exclusion', help='do not filter genomes based on NCBI metadata', action='store_true')
     u_qc_genomes_parser.add_argument(
-        '--min_perc_markers', help='minimum percentage of fun77 marker genes [0, 100]', type=float, default=Defaults.QC_MIN_PERC_MARKERS)
-    u_qc_genomes_parser.add_argument(
-        '--max_contigs', help='maximum number of contigs', type=int, default=Defaults.QC_MAX_CONTIGS)
-    u_qc_genomes_parser.add_argument(
-        '--min_N50', help='minimum N50 of scaffolds', type=int, default=Defaults.QC_MIN_N50)
-    u_qc_genomes_parser.add_argument(
-        '--max_ambiguous_perc', help='maximum percentage of ambiguous bases', type=float, default=Defaults.QC_MAX_AMBIGUOUS_PERC)
+        '--keep_hybrids', help='do not automatically filter hybrid genomes', action='store_true')
     u_qc_genomes_parser.add_argument('--silent', help="suppress output", action='store_true')
 
     # get number of genomes and taxa at each rank
