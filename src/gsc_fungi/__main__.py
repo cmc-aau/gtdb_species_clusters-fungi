@@ -91,9 +91,11 @@ if __name__ == '__main__':
     cdn_qc_genomes_parser.add_argument(
         '--min_perc_markers', help='minimum percentage of phylogenetic marker genes [0, 100]', type=float, default=Defaults.QC_MIN_PERC_MARKERS)
     cdn_qc_genomes_parser.add_argument(
-        '--skip_ncbi_exclusion', help='do not filter genomes based on NCBI metadata', action='store_true')
+        '--remove_ncbi_exclusions', help='filter genomes based on NCBI metadata', action='store_true')
     cdn_qc_genomes_parser.add_argument(
-        '--keep_hybrids', help='do not automatically filter hybrid genomes', action='store_true')
+        '--remove_hybrids_on_list', help='filter genomes from species on the hybrid species list', action='store_true')
+    cdn_qc_genomes_parser.add_argument(
+        '--keep_ncbi_hybrid_species', help="do not filter genomes from NCBI species with hybrid names (e.g. 'A x B')", action='store_true')
     cdn_qc_genomes_parser.add_argument('--silent', help="suppress output", action='store_true')
 
     # select species representative genomes
