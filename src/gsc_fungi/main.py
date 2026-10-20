@@ -44,6 +44,34 @@ else:
             return tomllib.load(f)
 
 
+def log_command_inputs(params, toml_keys, step_files=()):
+    """Report the TOML entries and earlier step outputs used by a command.
+
+    Values are reported as written in the TOML file, i.e. before being resolved
+    against root_dir. Each step file is given as (step name, filename) and is
+    reported relative to the step's output directory.
+    """
+
+    # the 'rich' logger also writes to the log file in the command's output directory
+    log = logging.getLogger('rich')
+
+    if toml_keys:
+        log.info('Command uses:')
+    for key in toml_keys:
+        value = '<not in TOML file>'
+        for section in ['data_files', 'nomenclature_files', 'ledgers']:
+            if key in params.get(section, {}):
+                value = params[section][key]
+                break
+        log.info(f' - {key} = {value}')
+
+    if step_files:
+        log.info('Command uses outputs of earlier steps:')
+        for step, filename in step_files:
+            step_dir = params.get('output_dirs', {}).get(step, f'<{step} not in TOML file>')
+            log.info(f' - {step} = {os.path.join(step_dir, filename)}')
+
+
 class OptionsParser():
     """Validate and execute command-line interface."""
 
@@ -73,6 +101,14 @@ class OptionsParser():
         check_file_exists(args.input_params_file)
         params = parse_toml_file(args.input_params_file)
 
+        log_command_inputs(params,
+                           ['genome_metadata_file',
+                            'marker_set_stats_file',
+                            'ncbi_assembly_summary_genbank_file',
+                            'ncbi_taxonomy_file',
+                            'qc_exception_list',
+                            'hybrid_species_list'])
+
         check_file_exists(self.args_abs_path(params, 'genome_metadata_file'))
         check_file_exists(self.args_abs_path(params, 'marker_set_stats_file'))
         check_file_exists(self.args_abs_path(params, 'ncbi_assembly_summary_genbank_file'))
@@ -84,11 +120,21 @@ class OptionsParser():
         make_sure_path_exists(out_dir)
         self.log.info(f"Output directory: {out_dir}")
 
+        if args.subparser_name == 'cdn_qc_genomes':
+            remove_ncbi_exclusions = args.remove_ncbi_exclusions
+            remove_hybrids_on_list = args.remove_hybrids_on_list
+            keep_ncbi_hybrid_species = args.keep_ncbi_hybrid_species
+        else:
+            remove_ncbi_exclusions = not args.skip_ncbi_exclusion
+            remove_hybrids_on_list = not args.keep_hybrids
+            keep_ncbi_hybrid_species = args.keep_hybrids
+
         qc_criteria = QcCriteria(
             args.max_perc_dup_markers,
             args.min_perc_markers,
-            args.skip_ncbi_exclusion,
-            args.keep_hybrids)
+            remove_ncbi_exclusions,
+            remove_hybrids_on_list,
+            keep_ncbi_hybrid_species)
 
         p = QcGenomes(out_dir)
         p.run(self.args_abs_path(params, 'genome_metadata_file'),
@@ -104,6 +150,12 @@ class OptionsParser():
 
         check_file_exists(args.input_params_file)
         params = parse_toml_file(args.input_params_file)
+
+        log_command_inputs(params,
+                           ['ncbi_assembly_summary_genbank_file',
+                            'ncbi_taxonomy_file',
+                            'cur_genome_path_file'],
+                           [('cdn_qc_genomes', 'qc_passed.tsv')])
 
         qc_dir = self.args_abs_path(params, 'cdn_qc_genomes')
         qc_pass_file = os.path.join(qc_dir, 'qc_passed.tsv')
@@ -127,6 +179,15 @@ class OptionsParser():
 
         check_file_exists(args.input_params_file)
         params = parse_toml_file(args.input_params_file)
+
+        log_command_inputs(params,
+                           ['ncbi_taxonomy_file',
+                            'cur_genome_path_file',
+                            'mycobank_file',
+                            'mycobank_sanctioned_names_persoon',
+                            'mycobank_sanctioned_names_ef'],
+                           [('cdn_qc_genomes', 'qc_passed.tsv'),
+                            ('cdn_select_sp_reps', 'sp_reps.tsv')])
 
         qc_dir = self.args_abs_path(params, 'cdn_qc_genomes')
         qc_pass_file = os.path.join(qc_dir, 'qc_passed.tsv')

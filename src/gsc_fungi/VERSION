@@ -1,3 +1,14 @@
+0.1.4
+- cdn_qc_genomes now keeps NCBI-excluded genomes by default; added --remove_ncbi_exclusions (replaces --skip_ncbi_exclusion)
+- split hybrid filtering: added --remove_hybrids_on_list (off by default) and --keep_ncbi_hybrid_species ('A x B' names are removed by default); replaces --keep_hybrids
+- warn about species on the hybrid list that match no NCBI species, reporting possible genus transfers
+- hybrid species list is now read from the species and hybrid_class columns
+- QC exception list summary is now tallied by the route column
+- excluded from RefSeq summary now reports genomes with each annotation and how many fail QC
+- fixed qc_failed.tsv header so it matches the failure flags written for each genome
+- cdn_* commands log the TOML entries and earlier step outputs they use
+- u_qc_genomes keeps its existing --skip_ncbi_exclusion and --keep_hybrids flags and behaviour
+
 0.1.3
 - added marker set file to QC step to remove genomes with insufficient number of marker genes
 
