@@ -16,6 +16,7 @@
 ###############################################################################
 
 import os
+import sys
 import gzip
 import logging
 from collections import defaultdict, Counter
@@ -24,6 +25,7 @@ from typing import Dict, Set, Tuple
 
 from gtdblib.util.bio.accession import canonical_gid
 
+from gsc_fungi.genome import assembly_score
 from gsc_fungi.ncbi import (parse_ncbi_taxonomy_file,
                             is_hybrid_species,
                             MetadataNCBI,
@@ -51,6 +53,22 @@ class QcCriteria:
 
 
 @dataclass
+class QcLedgerEntry:
+    """Entry in the QC exception ledger.
+
+    :param species: species name given in the ledger.
+    :param include: retain (True) or remove (False) genome regardless of QC criteria.
+    :param route: route by which the exception was established.
+    :param reason: reason for the exception.
+    """
+
+    species: str
+    include: bool
+    route: str
+    reason: str
+
+
+@dataclass
 class GenomeQualityMetadata:
     phylo_marker_perc: float
     lineage_dup_marker_perc: float
@@ -58,6 +76,7 @@ class GenomeQualityMetadata:
     contig_count: int
     n50_contigs: int
     ambiguous_base_perc: float
+    assembly_score: float
     ncbi: MetadataNCBI
 
 
@@ -121,28 +140,43 @@ class QcGenomes():
 
         return metadata_ncbi
 
-    def parse_qc_exception_list(self, qc_exception_list: str) -> Dict[str, str]:
-        """Parse QC exception list and return dictionary of genomes to retain."""
+    def parse_qc_exception_list(self, qc_exception_list: str) -> Dict[str, QcLedgerEntry]:
+        """Parse QC exception list and return dictionary of genomes to retain or remove."""
 
-        gid_exceptions = {}
-        route_count = defaultdict(int)
+        qc_ledger = {}
 
         open_fn = gzip.open if str(qc_exception_list).endswith('.gz') else open
         with open_fn(qc_exception_list, 'rt') as f:
-            header = f.readline().strip().split('\t')
+            header = f.readline().rstrip('\r\n').split('\t')
 
-            genome_id_idx = header.index('genome_id')
-            route_idx = header.index('route')
-            exception_reason_idx = header.index('exception_reason')
+            genome_id_idx = header.index('Genome ID')
+            species_idx = header.index('Species')
+            include_idx = header.index('Include')
+            route_idx = header.index('Route')
+            reason_idx = header.index('Reason for exception')
 
             for line in f:
-                tokens = line.strip().split('\t')
+                tokens = line.rstrip('\r\n').split('\t')
+                if not tokens[genome_id_idx].strip():
+                    continue
 
-                gid = tokens[genome_id_idx]
-                gid_exceptions[gid] = tokens[exception_reason_idx]
-                route_count[tokens[route_idx]] += 1
+                gid = tokens[genome_id_idx].strip()
 
-        return gid_exceptions, route_count
+                include = tokens[include_idx].strip().upper()
+                if include not in ('TRUE', 'FALSE'):
+                    self.log.error(f'Invalid Include value for {gid} in QC exception list: {tokens[include_idx]}')
+                    sys.exit(1)
+
+                if gid in qc_ledger:
+                    self.log.error(f'Genome {gid} appears multiple times in QC exception list.')
+                    sys.exit(1)
+
+                qc_ledger[gid] = QcLedgerEntry(tokens[species_idx].strip(),
+                                               include == 'TRUE',
+                                               tokens[route_idx].strip(),
+                                               tokens[reason_idx].strip())
+
+        return qc_ledger
 
     def parse_hybrid_species_list(self, hybrid_species_list: str) -> Dict[str, str]:
         """Parse hybrid species list and return dictionary of genomes to retain."""
@@ -226,7 +260,14 @@ class QcGenomes():
                 contig_count = int(line_split[contig_count_idx])
                 n50 = int(line_split[n50_idx])
                 ambiguous_base_perc = (100.0 * int(line_split[ambiguous_bases_idx])) / genome_size
-                
+
+                assem_score = assembly_score(metadata_ncbi[gid].assem_level,
+                                                metadata_ncbi[gid].excluded_from_refseq,
+                                                marker_stat_results[gid].phylo_marker_perc,
+                                                marker_stat_results[gid].lineage_dup_marker_perc,
+                                                contig_count,
+                                                ambiguous_base_perc)
+
                 genome_qual_metadata[gid] = GenomeQualityMetadata(
                                                             marker_stat_results[gid].phylo_marker_perc,
                                                             marker_stat_results[gid].lineage_dup_marker_perc,
@@ -234,6 +275,7 @@ class QcGenomes():
                                                             contig_count,
                                                             n50,
                                                             ambiguous_base_perc,
+                                                            assem_score,
                                                             metadata_ncbi[gid])
 
         if skip_count > 0:
@@ -247,15 +289,15 @@ class QcGenomes():
                     gid_to_ncbi_taxonomy: Dict[str, str],
                     hybrid_list_gids: Set[str],
                     ncbi_hybrid_gids: Set[str],
-                    gid_exceptions: Set[str],
+                    qc_ledger: Dict[str, QcLedgerEntry],
                     qc_criteria: QcCriteria) -> Tuple[Set[str], Set[str], Dict[str, int]]:
         """Determine genomes passing and failing QC."""
 
         fout_passed = open(os.path.join(self.out_dir, 'qc_passed.tsv'), 'w')
         fout_failed = open(os.path.join(self.out_dir, 'qc_failed.tsv'), 'w')
 
-        header = 'gid\tncbi_species\tncbi_taxonomy\tqc_exception'
-        header += '\tphylo_marker_perc\tlineage_marker_dup_perc'
+        header = 'gid\tncbi_species\tncbi_taxonomy\tqc_ledger_include'
+        header += '\tassembly_score\tphylo_marker_perc\tlineage_marker_dup_perc'
         header += '\tgenome_size\tcontig_count\tn50_contigs\tambiguous_base_perc'
         header += '\tncbi_relation_to_type_material\tncbi_refseq_category'
         header += '\tncbi_excluded_from_refseq\tncbi_assem_level'
@@ -263,7 +305,8 @@ class QcGenomes():
         fout_passed.write(header + '\n')
         fout_failed.write(header)
         fout_failed.write('\tfailed_phylo_marker_perc\tfailed_lineage_dup_marker_perc')
-        fout_failed.write('\tfailed_refseq_exclude\tfailed_hybrid_on_list\tfailed_ncbi_hybrid_species\n')
+        fout_failed.write('\tfailed_refseq_exclude\tfailed_hybrid_on_list\tfailed_ncbi_hybrid_species')
+        fout_failed.write('\tfailed_ledger_exclusion\n')
 
         qc_pass = set()
         qc_fail = set()
@@ -290,14 +333,22 @@ class QcGenomes():
                 and not hybrid_on_list_exclude
                 and not ncbi_hybrid_exclude)
 
-            if pass_qc or gid in gid_exceptions:
+            # genomes on the QC exception ledger are retained or removed regardless of the QC criteria
+            ledger_include = ''
+            ledger_exclude = False
+            if gid in qc_ledger:
+                ledger_include = 'TRUE' if qc_ledger[gid].include else 'FALSE'
+                ledger_exclude = not qc_ledger[gid].include
+
+            if (pass_qc and not ledger_exclude) or ledger_include == 'TRUE':
                 qc_pass.add(gid)
 
-                fout_passed.write('{}\t{}\t{}\t{}\t{:.2f}\t{:.2f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format(
+                fout_passed.write('{}\t{}\t{}\t{}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format(
                     gid,
                     gid_to_ncbi_sp[gid],
                     gid_to_ncbi_taxonomy[gid],
-                    gid in gid_exceptions,
+                    ledger_include,
+                    m.assembly_score,
                     m.phylo_marker_perc,
                     m.lineage_dup_marker_perc,
                     m.genome_size,
@@ -312,11 +363,12 @@ class QcGenomes():
             else:
                 qc_fail.add(gid)
 
-                fout_failed.write('{}\t{}\t{}\t{}\t{:.2f}\t{:.2f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                fout_failed.write('{}\t{}\t{}\t{}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
                     gid,
                     gid_to_ncbi_sp[gid],
                     gid_to_ncbi_taxonomy[gid],
-                    gid in gid_exceptions,
+                    ledger_include,
+                    m.assembly_score,
                     m.phylo_marker_perc,
                     m.lineage_dup_marker_perc,
                     m.genome_size,
@@ -358,7 +410,13 @@ class QcGenomes():
                     fout_failed.write('\tTrue')
                 else:
                     fout_failed.write('\tFalse')
-                    
+
+                if ledger_exclude:
+                    failed_gids['ledger_exclusion'].add(gid)
+                    fout_failed.write('\tTrue')
+                else:
+                    fout_failed.write('\tFalse')
+
                 fout_failed.write('\n')
 
         fout_passed.close()
@@ -378,14 +436,15 @@ class QcGenomes():
         fout_failed_sp = open(os.path.join(self.out_dir, 'species_fail_qc.tsv'), 'w')
 
         header = 'ncbi_species\tgid'
-        header += '\tphylo_marker_perc\tlineage_marker_dup_perc'
+        header += '\tassembly_score\tphylo_marker_perc\tlineage_marker_dup_perc'
         header += '\tgenome_size\tcontig_count\tn50_contigs\tambiguous_base_perc'
         header += '\tncbi_relation_to_type_material\tncbi_refseq_category'
         header += '\tncbi_excluded_from_refseq\tncbi_assem_level'
 
         fout_failed_sp.write(header)
         fout_failed_sp.write('\tfailed_phylo_marker_perc\tfailed_lineage_dup_marker_perc')
-        fout_failed_sp.write('\tfailed_refseq_exclude\tfailed_hybrid_on_list\tfailed_ncbi_hybrid_species\n')
+        fout_failed_sp.write('\tfailed_refseq_exclude\tfailed_hybrid_on_list\tfailed_ncbi_hybrid_species')
+        fout_failed_sp.write('\tfailed_ledger_exclusion\n')
 
         lost_sp = set()
         lost_sp_by_reason = defaultdict(int)
@@ -403,14 +462,17 @@ class QcGenomes():
                     lost_sp_by_reason['hybrid_on_list'] += 1
                 if gids - failed_gids['ncbi_hybrid_species'] == set():
                     lost_sp_by_reason['ncbi_hybrid_species'] += 1
-                
+                if gids - failed_gids['ledger_exclusion'] == set():
+                    lost_sp_by_reason['ledger_exclusion'] += 1
+
                 # write out information for each genome in failed species
                 for gid in qc_fail.intersection(gids):
                     m = genome_qual_metadata[gid]
 
-                    fout_failed_sp.write('{}\t{}\t{:.2f}\t{:.2f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                    fout_failed_sp.write('{}\t{}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
                         sp,
                         gid,
+                        m.assembly_score,
                         m.phylo_marker_perc,
                         m.lineage_dup_marker_perc,
                         m.genome_size,
@@ -427,7 +489,8 @@ class QcGenomes():
                     fout_failed_sp.write(f'\t{gid in failed_gids["lineage_dup_marker_perc"]}')
                     fout_failed_sp.write(f'\t{gid in failed_gids["refseq_exclude"]}')
                     fout_failed_sp.write(f'\t{gid in failed_gids["hybrid_on_list"]}')
-                    fout_failed_sp.write(f'\t{gid in failed_gids["ncbi_hybrid_species"]}\n')
+                    fout_failed_sp.write(f'\t{gid in failed_gids["ncbi_hybrid_species"]}')
+                    fout_failed_sp.write(f'\t{gid in failed_gids["ledger_exclusion"]}\n')
 
         fout_failed_sp.close()
 
@@ -450,12 +513,17 @@ class QcGenomes():
 
         # parse QC exception file
         self.log.info('Parsing QC exception list:')
-        gid_exceptions, route_count = self.parse_qc_exception_list(qc_exception_list)
-        self.log.info(f' - identified {len(gid_exceptions):,} genomes to retain')
+        qc_ledger = self.parse_qc_exception_list(qc_exception_list)
+        include_count = sum(1 for e in qc_ledger.values() if e.include)
+        self.log.info(f' - identified {include_count:,} genomes to retain and {len(qc_ledger) - include_count:,} genomes to remove')
 
-        self.log.info('QC exception routes:')
-        for route, count in sorted(route_count.items(), key=lambda kv: kv[1], reverse=True):
-            self.log.info(f' - {route}: {count}')
+        route_count = defaultdict(lambda: defaultdict(int))
+        for e in qc_ledger.values():
+            route_count[e.route][e.include] += 1
+
+        self.log.info('QC exception routes (genomes to retain | genomes to remove):')
+        for route, counts in sorted(route_count.items(), key=lambda kv: sum(kv[1].values()), reverse=True):
+            self.log.info(f' - {route} | {counts[True]:,} | {counts[False]:,}')
 
         # parse hybrid species list
         self.log.info('Parsing hybrid species list:')
@@ -481,11 +549,19 @@ class QcGenomes():
         self.log.info('Parsing NCBI species assignments:')
         gid_to_ncbi_taxonomy, gid_to_ncbi_sp = parse_ncbi_taxonomy_file(ncbi_taxonomy_file)
 
-        # sanity check that genomes in the QC exception list aren't from a hybrid species
-        for gid in gid_exceptions:
+        # sanity check that genomes in the QC exception list are assigned to the expected
+        # NCBI species and that genomes to retain aren't from a hybrid species
+        for gid, e in qc_ledger.items():
+            if gid not in gid_to_ncbi_sp:
+                self.log.warning(f'Genome {gid} in QC exception list has no NCBI species assignment.')
+                continue
+
             ncbi_sp = gid_to_ncbi_sp[gid]
-            if ncbi_sp in hybrid_species:
-                self.log.warning(f'Genome {gid} in QC exception list is from a hybrid species: {ncbi_sp}')
+            if ncbi_sp != 's__' and ncbi_sp.replace('s__', '') != e.species:
+                self.log.warning(f'Genome {gid} in QC exception list is from {e.species}, but assigned to NCBI species {ncbi_sp}.')
+
+            if e.include and ncbi_sp in hybrid_species:
+                self.log.warning(f'Genome {gid} to retain in QC exception list is from a hybrid species: {ncbi_sp}')
                 sys.exit(0)
 
         # determine hybrid genomes
@@ -539,7 +615,7 @@ class QcGenomes():
                                                         gid_to_ncbi_taxonomy,
                                                         hybrid_list_gids,
                                                         ncbi_hybrid_gids,
-                                                        gid_exceptions, 
+                                                        qc_ledger,
                                                         qc_criteria)
         self.log.info(f' - identified {len(qc_pass):,} genomes passing and {len(qc_fail):,} genomes failing QC')
 

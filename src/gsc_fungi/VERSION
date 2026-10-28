@@ -1,3 +1,11 @@
+0.1.5
+- cdn_qc_genomes again computes an assembly score from the marker-set statistics and writes it to qc_passed.tsv, qc_failed.tsv and species_fail_qc.tsv
+- cdn_select_sp_reps reads the current qc_passed.tsv columns (fixes missing assembly_score column error)
+- assembly score contig penalty is now 5 points per 1,000 contigs (was per 100)
+- fixed missing sys import in qc_genomes.py
+- QC exception ledger is now read from its new columns (Genome ID, Species, Include, Route, Reason for exception); Include=FALSE genomes fail QC regardless of other criteria and are flagged in a new failed_ledger_exclusion column
+- qc_exception column in qc_passed.tsv and qc_failed.tsv replaced by qc_ledger_include (TRUE, FALSE or blank)
+
 0.1.4
 - cdn_qc_genomes now keeps NCBI-excluded genomes by default; added --remove_ncbi_exclusions (replaces --skip_ncbi_exclusion)
 - split hybrid filtering: added --remove_hybrids_on_list (off by default) and --keep_ncbi_hybrid_species ('A x B' names are removed by default); replaces --keep_hybrids

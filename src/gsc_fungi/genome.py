@@ -24,12 +24,8 @@ from gsc_fungi.ncbi import MetadataNCBI, NCBI_COMPLETE_GENOME, NCBI_ENV_GENOME
 @dataclass
 class GenomeMetadata:
     """Metadata for a genome including quality metrics."""
-    completness: float
-    contamination: float
-    genome_quality: float
-    marker_set_completness: float
-    marker_set_contamination: float
-    marker_set_quality: float
+    phylo_marker_perc: float
+    lineage_dup_marker_perc: float
     genome_size: int
     contig_count: int
     n50_contigs: int
@@ -38,16 +34,10 @@ class GenomeMetadata:
     ncbi: MetadataNCBI
 
 
-def assembly_quality(completeness: float, contamination: float) -> float:
-    """Caculate assembly quality for genome."""
-
-    return completeness - 5*contamination
-
-
 def assembly_score(ncbi_assem_level: str,
-                    excluded_from_refseq: List[str], 
-                    completeness: float, 
-                    contamination: float,
+                    excluded_from_refseq: List[str],
+                    phylo_marker_perc: float,
+                    lineage_dup_marker_perc: float,
                     contig_count: int,
                     ambiguous_base_perc: float) -> float:
         """Calculate assembly score for genome."""
@@ -56,13 +46,13 @@ def assembly_score(ncbi_assem_level: str,
         if ncbi_assem_level == NCBI_COMPLETE_GENOME:
             score += 100
 
-        score += completeness - 5*contamination
+        score += phylo_marker_perc - 5*lineage_dup_marker_perc
 
         for exclude in excluded_from_refseq:
             if exclude in NCBI_ENV_GENOME:
                 score -= 100
 
-        score -= 5 * contig_count/100.0
+        score -= 5 * contig_count/1000.0
         score -= 5 * ambiguous_base_perc
 
         return score
