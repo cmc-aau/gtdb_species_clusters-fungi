@@ -1,3 +1,10 @@
+0.1.6
+- cdn_select_sp_reps resolves species with multiple type genomes that are not all within 99% ANI by selecting the genome with the highest assembly score among type genomes with ANI >= 99% to more than half of the type genomes (counted as ani99_resolved)
+- cdn_select_sp_reps no longer treats genomes NCBI marks as 'not used as type' as type material
+- cdn_select_sp_reps breaks assembly score ties by selecting the alphanumerically first genome
+- cdn_select_sp_reps logs the pairwise ANI outcome and the selected genome for species with multiple type genomes
+- cdn_qc_genomes reports the number of lost named NCBI taxa at each rank from phylum to species
+
 0.1.5
 - cdn_qc_genomes again computes an assembly score from the marker-set statistics and writes it to qc_passed.tsv, qc_failed.tsv and species_fail_qc.tsv
 - cdn_select_sp_reps reads the current qc_passed.tsv columns (fixes missing assembly_score column error)

@@ -34,6 +34,15 @@ from gsc_fungi.ncbi import (parse_ncbi_taxonomy_file,
                             NCBI_ENV_GENOME)
 
 
+# ranks reported when determining taxa without genomes after QC
+LOST_TAXA_RANKS = {'p__': 'phylum',
+                   'c__': 'class',
+                   'o__': 'order',
+                   'f__': 'family',
+                   'g__': 'genus',
+                   's__': 'species'}
+
+
 @dataclass
 class QcCriteria:
     """Criteria for passing QC.
@@ -496,6 +505,27 @@ class QcGenomes():
 
         return lost_sp, lost_sp_by_reason
          
+    def lost_taxa_by_rank(self,
+                            gid_to_ncbi_taxonomy: Dict[str, str],
+                            gids: Set[str],
+                            qc_pass: Set[str]) -> Dict[str, Tuple[int, int]]:
+        """Determine number of named NCBI taxa at each rank without genomes passing QC."""
+
+        taxa = defaultdict(set)
+        retained_taxa = defaultdict(set)
+        for gid in gids:
+            for taxon in gid_to_ncbi_taxonomy[gid].split(';'):
+                rank_prefix = taxon[:taxon.index('__') + 2]
+                if rank_prefix not in LOST_TAXA_RANKS or taxon == rank_prefix:
+                    continue
+
+                taxa[rank_prefix].add(taxon)
+                if gid in qc_pass:
+                    retained_taxa[rank_prefix].add(taxon)
+
+        return {rank_prefix: (len(taxa[rank_prefix] - retained_taxa[rank_prefix]), len(taxa[rank_prefix]))
+                for rank_prefix in LOST_TAXA_RANKS}
+
     def run(self, 
             genome_metadata_file: str,
             marker_set_stats_file: str,
@@ -633,14 +663,18 @@ class QcGenomes():
             self.log.info(f' - {reason} | {count:,} | {excluded_from_refseq_filtered[reason]:,}')
 
         # determine species with no remaining genomes after QC
-        self.log.info('Determining species without genomes after QC:')
+        self.log.info('Determining named NCBI taxa without genomes after QC (lost taxa | total taxa):')
         lost_sp, lost_sp_by_reason = self.species_qc_status(genome_qual_metadata, 
                                                             sp_to_gids, 
                                                             qc_pass, 
                                                             qc_fail, 
                                                             failed_gids, 
                                                             qc_criteria)
-        self.log.info(f' - identified {len(lost_sp):,} lost species')
+        all_gids = set().union(*sp_to_gids.values())
+        lost_taxa = self.lost_taxa_by_rank(gid_to_ncbi_taxonomy, all_gids, qc_pass)
+        for rank_prefix, rank_label in LOST_TAXA_RANKS.items():
+            lost_count, taxa_count = lost_taxa[rank_prefix]
+            self.log.info(f' - {rank_label} | {lost_count:,} ({100.0*lost_count/taxa_count:.1f}%) | {taxa_count:,}')
 
         self.log.info('Genomes and species failing each QC criterion:')
         for reason, gids in sorted(failed_gids.items(), key=lambda kv: len(kv[1]), reverse=True):

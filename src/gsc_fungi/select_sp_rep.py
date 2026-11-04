@@ -90,21 +90,25 @@ class SelectSpeciesRepresentative():
         check_dependencies(['skani'])
         self.log.info('Using skani v{}.'.format(Skani.get_version()))
 
-    def check_pairwise_ani_99(self, gids: Set[str], genome_files: Dict[str, str]) -> Tuple[bool, Dict[str, List[float]]]:
-        """Check if all genomes have an ANI >= 99%"""
+    def check_pairwise_ani_99(self, gids: Set[str], genome_files: Dict[str, str]) -> Tuple[bool, Dict[str, List[float]], Dict[str, Set[str]]]:
+        """Check if all genomes have an ANI >= 99% and determine genomes within 99% ANI of each genome (including itself)."""
 
         similar_genomes = True
         anis = defaultdict(list)
+        ani99_neighbours = {gid: {gid} for gid in gids}
         for gid1, gid2 in combinations(gids, 2):
             result = Skani.dist(gid1, gid2, genome_files[gid1], genome_files[gid2])
 
             anis[gid1].append(result.ani)
             anis[gid2].append(result.ani)
 
-            if result.ani < 99.0:
+            if result.ani >= 99.0:
+                ani99_neighbours[gid1].add(gid2)
+                ani99_neighbours[gid2].add(gid1)
+            else:
                 similar_genomes = False
-            
-        return similar_genomes, anis
+
+        return similar_genomes, anis, ani99_neighbours
 
     def metadata_pass_qc(self, qc_pass_file: str) -> Dict[str, GenomeMetadata]:
         """Get metadata for genomes passing QC."""
@@ -188,9 +192,9 @@ class SelectSpeciesRepresentative():
                 if rs_category in REFSEQ_CATEGORIES and gid not in NCBI_REP_GENOMES_TO_EXCLUDE:
                     sp_rep_genomes[sp].append(gid)
 
-                for exclude in genome_metadata[gid].ncbi.excluded_from_refseq:
-                    if exclude in NCBI_EXCLUDED_AS_TYPE:
-                        continue
+                if any(exclude in NCBI_EXCLUDED_AS_TYPE for exclude in genome_metadata[gid].ncbi.excluded_from_refseq):
+                    # NCBI indicates genome should not be used as type material
+                    continue
 
                 if type_material in NCBI_TYPE_SPECIES:
                     org_name = tokens[org_name_idx]
@@ -210,16 +214,51 @@ class SelectSpeciesRepresentative():
         return sp_type_genomes, subsp_type_genomes, sp_rep_genomes, gid_to_type_material, gid_to_rs_category
 
     def determine_best_assembly(self, gids: List[str], genome_metadata: Dict[str, GenomeMetadata]) -> str:
-        """Determine genome with highest assembly score."""
-        
+        """Determine genome with highest assembly score, breaking ties by selecting the alphanumerically first genome."""
+
         gtdb_rid = None
         highest_score = -1e9
-        for gid in gids:
+        for gid in sorted(gids):
             if genome_metadata[gid].assembly_score > highest_score:
                 highest_score = genome_metadata[gid].assembly_score
                 gtdb_rid = gid
 
         return gtdb_rid
+
+    def sel_rep_from_multiple_type_genomes(self,
+                                            type_gids: List[str],
+                                            genome_metadata: Dict[str, GenomeMetadata],
+                                            genome_files: Dict[str, str]) -> Tuple[str, Dict[str, List[float]], bool]:
+        """Select representative from multiple type genomes based on 99% ANI.
+
+        Candidates are type genomes with an ANI >= 99% to more than half of the type
+        genomes (including itself), and the candidate with the highest assembly score
+        is selected. No representative is selected if there are no candidates.
+        """
+
+        similar_genomes, anis, ani99_neighbours = self.check_pairwise_ani_99(type_gids, genome_files)
+        min_ani = min(min(gid_anis) for gid_anis in anis.values())
+
+        if similar_genomes:
+            gtdb_rid = self.determine_best_assembly(type_gids, genome_metadata)
+            self.log.info(f'   - all pairwise ANI >= 99% (min = {min_ani:.2f}%); selected {gtdb_rid} with highest assembly score ({genome_metadata[gtdb_rid].assembly_score:.2f})')
+            return gtdb_rid, anis, True
+
+        self.log.info(f'   - not all pairwise ANI >= 99% (min = {min_ani:.2f}%)')
+
+        candidates = [gid for gid in type_gids if len(ani99_neighbours[gid]) > 0.5 * len(type_gids)]
+        if len(candidates) == 0:
+            self.log.info('   - no type genome has ANI >= 99% to more than half of the type genomes')
+            return None, anis, False
+
+        gtdb_rid = self.determine_best_assembly(candidates, genome_metadata)
+        outside_gids = sorted(set(type_gids) - ani99_neighbours[gtdb_rid])
+        self.log.info(f'   - selected {gtdb_rid} with highest assembly score ({genome_metadata[gtdb_rid].assembly_score:.2f}) '
+                      f'among {len(candidates):,} type genomes with ANI >= 99% to more than half of the type genomes; '
+                      f'{gtdb_rid} has ANI >= 99% to {len(ani99_neighbours[gtdb_rid]):,} of {len(type_gids):,} type genomes '
+                      f'(< 99%: {", ".join(outside_gids)})')
+
+        return gtdb_rid, anis, False
 
     def sel_sp_rep_from_type(self,
                                 species: str, 
@@ -258,11 +297,14 @@ class SelectSpeciesRepresentative():
                 self.log.info(f' - {species} has {len(sp_type_genomes[species]):,} type species genomes and cannot be resolved with NCBI representative genome information')
 
                 # determine ANI between genomes and select highest quality genome assembly
-                # if all genomes are highly similar to each other
-                similar_genomes, anis = self.check_pairwise_ani_99(sp_type_genomes[species], genome_files)
+                # among genomes highly similar to the majority of type genomes
+                gtdb_rid, anis, similar_genomes = self.sel_rep_from_multiple_type_genomes(sp_type_genomes[species],
+                                                                                          genome_metadata,
+                                                                                          genome_files)
                 if similar_genomes:
                     stats.multi_sp_type_similar_genomes += 1
-                    gtdb_rid = self.determine_best_assembly(sp_type_genomes[species], genome_metadata)
+                elif gtdb_rid is not None:
+                    stats.ani99_resolved += 1
 
         elif len(subsp_type_genomes[species]) == 1:
             # select the only type strain of subspecies genome as the GTDB representative
@@ -283,11 +325,14 @@ class SelectSpeciesRepresentative():
                 self.log.info(f' - {species} has {len(subsp_type_genomes[species]):,} type subspecies genomes and cannot be resolved with NCBI representative genome information')
 
                 # determine ANI between genomes and select highest quality genome assembly
-                # if all genomes are highly similar to each other
-                similar_genomes, anis = self.check_pairwise_ani_99(subsp_type_genomes[species], genome_files)
+                # among genomes highly similar to the majority of type genomes
+                gtdb_rid, anis, similar_genomes = self.sel_rep_from_multiple_type_genomes(subsp_type_genomes[species],
+                                                                                          genome_metadata,
+                                                                                          genome_files)
                 if similar_genomes:
                     stats.multi_subsp_type_similar_genomes += 1
-                    gtdb_rid = self.determine_best_assembly(subsp_type_genomes[species], genome_metadata)
+                elif gtdb_rid is not None:
+                    stats.ani99_resolved += 1
         elif len(sp_rep_genomes[species]) >= 1:
             # select the NCBI representative genome as the GTDB representative
             assert len(sp_rep_genomes[species]) == 1
@@ -353,6 +398,7 @@ class SelectSpeciesRepresentative():
                     stats.manual_resolution += 1
 
                     gtdb_rid = self.determine_best_assembly(union_gids, genome_metadata)
+                    self.log.info(f'   - requires manual resolution; selected {gtdb_rid} with highest assembly score ({genome_metadata[gtdb_rid].assembly_score:.2f}) among {len(union_gids):,} type and NCBI representative genomes')
 
                     for gid in union_gids:
                         fout_man.write('{}\t{}\t{}\t{}\t{}\t{}\t{:.2f}\t{}\t{}\n'.format(
@@ -491,6 +537,7 @@ class SelectSpeciesRepresentative():
         self.log.info(f'   - multi_subsp_type_genomes: {selection_stats.multi_subsp_type_genomes:,}')
         self.log.info(f'     - multi_subsp_type_similar_genomes: {selection_stats.multi_subsp_type_similar_genomes:,}')
         self.log.info(f'     - multi_subsp_type_ncbi_rep_resolved: {selection_stats.multi_subsp_type_ncbi_rep_resolved:,}')
+        self.log.info(f' - ani99_resolved: {selection_stats.ani99_resolved:,}')
         self.log.info(f' - manual_resolution: {selection_stats.manual_resolution:,}')
         self.log.info(f' - sp_no_type_genome: {selection_stats.sp_no_type_genome:,}')
         self.log.info(f'   - sp_no_type_single: {selection_stats.sp_no_type_single:,}')
