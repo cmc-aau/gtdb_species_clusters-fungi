@@ -1,0 +1,34 @@
+# Conda environment for gsc_fungi.
+#
+#   mamba env create -f gtdb_r237_fungi-environment.yml
+#   conda activate gtdb_r237_fungi
+#
+# gsc_fungi itself is run from source; see the Installation section of README.md
+# for what to add to PATH and PYTHONPATH once the environment is active.
+#
+# gtdblib is not packaged on conda-forge/bioconda, so it is installed from PyPI.
+# Its dependencies are listed explicitly so conda (not pip) installs and pins them.
+name: gtdb_r237_fungi
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - python=3.12.16
+  - pip=26.2.2
+  # gtdb_r237_fungi
+  - rich=15.0.0
+  - numpy=2.5.5
+  - matplotlib=3.11.2
+  - unidecode=1.4.0
+  - mpld3=0.5.12         # optional: HTML figure output
+  - skani=0.4.0          # ANI/AF calculations
+  # gtdblib dependencies
+  - dendropy=5.1.3
+  - psycopg2-binary=2.9.12
+  - pyyaml=6.0.3
+  - sqlalchemy=2.1.9
+  - tqdm=4.70.1
+  - typer=0.29.2
+  - pip:
+      - gtdblib==1.12.1
