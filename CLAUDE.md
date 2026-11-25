@@ -8,16 +8,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running
 
-There is no packaging (`setup.py`/`pyproject.toml`), no test suite, and no linter configuration. The code runs from source:
+There is no packaging (`setup.py`/`pyproject.toml`), no test suite, and no linter configuration. Dependencies are pinned in `gtdb_r237_fungi-environment.yml` (gtdblib comes from PyPI; skani from bioconda). The code itself runs from source:
 
 ```bash
-# dependencies: gtdblib (~/src/gtdb-lib), rich, numpy, matplotlib, unidecode; skani on PATH for ANI steps
-conda activate gtdb_species_clusters-fungi-r232     # or call ~/.conda/envs/gtdb_species_clusters-fungi-r232/bin/python
-export PYTHONPATH=~/src/gtdb-lib:$PWD/src:$PYTHONPATH
+mamba env create -f gtdb_r237_fungi-environment.yml  # once
+conda activate gtdb_r237_fungi
+export PATH=$PWD/bin:$PATH
+export PYTHONPATH=$PWD/src${PYTHONPATH:+:$PYTHONPATH}
 
-bin/gsc_fungi <command> -h                          # wrapper for: python3 src/gsc_fungi "$@"
-bin/gsc_fungi cdn_qc_genomes example_files/gtdb_inputs.toml
+gsc_fungi <command> -h                              # bin/gsc_fungi wraps: python3 src/gsc_fungi "$@"
+gsc_fungi cdn_qc_genomes example_files/gtdb_inputs.toml
 ```
+
+Don't add a gtdb-lib clone to `PYTHONPATH`; it would shadow the pinned gtdblib. When dependencies change, update the environment YAML with exact versions and keep the README's Installation section in sync.
 
 To check a change without writing into the real release directories, copy the TOML and point `output_dirs.<command>` (and any ledger being tested) at absolute paths in a scratch directory. `os.path.join` with an absolute path ignores `root_dir`, so inputs are still read from the real data. QC on release232 (~22k genomes) takes seconds.
 
@@ -25,7 +28,7 @@ To check a change without writing into the real release directories, copy the TO
 
 **CLI flow.** `src/gsc_fungi/__main__.py` defines argparse subcommands, sets up the `rich` logger, adds a file handler writing `gsc_fungi.log` into the command's output directory, and logs the version and command line. It then calls `OptionsParser.run()` in `main.py`. Each handler there reads the TOML, calls `log_command_inputs()` to log the TOML entries and earlier-step outputs it uses, checks that the files exist, and then calls the `run()` method of a step class (`QcGenomes`, `SelectSpeciesRepresentative`, `ClusterNamedSpecies`, …). Use `logging.getLogger('rich')` so messages reach the log file.
 
-**TOML input parameters.** Nearly all inputs come from one TOML file (`input_params_file`), with sections `[data_files]`, `[nomenclature_files]`, `[ledgers]` and `[output_dirs]`. Paths are relative to `root_dir` and are resolved lazily by `OptionsParser.args_abs_path()`, so `params` keeps the raw values. Each command's output directory is the `[output_dirs]` entry named after the subcommand. `example_files/gtdb_inputs.toml` is the current template. `docs/example_cdn_inputs.toml` is outdated.
+**TOML input parameters.** Nearly all inputs come from one TOML file (`input_params_file`), with sections `[data_files]`, `[nomenclature_files]`, `[ledgers]` and `[output_dirs]`. Paths are relative to `root_dir` and are resolved lazily by `OptionsParser.args_abs_path()`, so `params` keeps the raw values. Each command's output directory is the `[output_dirs]` entry named after the subcommand. `example_files/gtdb_inputs.toml` is the template, and `README.md` documents each command and its parameters; update the README when adding or changing a command or option.
 
 **Pipeline.** `cdn_*` commands build clusters de novo, and each step reads files written by earlier steps from their output directories:
 1. `cdn_qc_genomes` writes `qc_passed.tsv`, `qc_failed.tsv` and `species_fail_qc.tsv`.
@@ -52,7 +55,7 @@ The order of the per-genome `failed_*` flags written in `qc_genomes()` must matc
 - QC exception list: `genome_id`, `exception_reason`, `route`
 - hybrid species list: `species`, `hybrid_class`
 
-Ledger formats change between releases, so check the headers of the actual files under `/projects/PC/GTDB/gtdb_fungal/metadata/<release>/ledgers/` rather than relying on `example_files/`.
+Ledger formats change between releases, so check the headers of the actual files named in the TOML's `[ledgers]` section (resolved against `root_dir`) rather than relying on `example_files/`.
 
 **Gotchas.**
 - `ClusterNamedSpecies.calculate_pairwise_ani()` has an `if True: # *** DEBUGGING` guard, so ANI is always recomputed and the `ani_af.pkl` cache is never read.
