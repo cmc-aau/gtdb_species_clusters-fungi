@@ -1,3 +1,9 @@
+0.1.7
+- added gtdb_r237_fungi-environment.yml conda environment with pinned versions of all dependencies (gtdblib installed from PyPI)
+- README describes environment setup, required PATH and PYTHONPATH entries, the input TOML file, and each command with its parameters and an example
+- example input TOML file moved to example_files/gtdb_inputs.toml (replaces outdated docs/example_cdn_inputs.toml)
+- CLAUDE.md updated for the new environment file, README and example TOML location
+
 0.1.6
 - cdn_select_sp_reps resolves species with multiple type genomes that are not all within 99% ANI by selecting the genome with the highest assembly score among type genomes with ANI >= 99% to more than half of the type genomes (counted as ani99_resolved)
 - cdn_select_sp_reps no longer treats genomes NCBI marks as 'not used as type' as type material
