@@ -1,3 +1,6 @@
+0.1.8
+- cdn_cluster_named_sp shows a progress bar while skani search compares query and reference genomes, using the 'N query sequences processed' messages skani writes to stderr every 100 queries; progress is also logged roughly every 10%
+
 0.1.7
 - added gtdb_r237_fungi-environment.yml conda environment with pinned versions of all dependencies (gtdblib installed from PyPI)
 - README describes environment setup, required PATH and PYTHONPATH entries, the input TOML file, and each command with its parameters and an example

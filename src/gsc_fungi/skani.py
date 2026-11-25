@@ -25,7 +25,20 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Tuple, List, Dict, TypeAlias
 
+from rich import get_console
+from rich.progress import (
+    Progress,
+    TextColumn,
+    BarColumn,
+    MofNCompleteColumn,
+    TaskProgressColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn)
+
 from gtdblib.util.shell.execute import check_dependencies
+
+# progress message written to stderr by skani search after every 100 queries
+SKANI_QUERIES_PROCESSED_RE = re.compile(r'(\d+) query sequences processed')
 
 
 @dataclass
@@ -73,6 +86,58 @@ class Skani():
             return ani, max(af_r, af_q)
 
         return 0.0, 0.0
+
+    def _run_with_query_progress(self, cmd: List[str], num_queries: int) -> Tuple[int, str]:
+        """Run skani search, reporting progress from its stderr.
+
+        skani search writes 'N query sequences processed.' to stderr after every
+        100 queries, so progress is reported by reading stderr as it is written
+        rather than after skani exits. This adds no work for skani. A progress
+        bar is shown when writing to a terminal, and progress is logged roughly
+        every 10% so it also reaches the log file.
+
+        Returns the skani return code and its stderr.
+        """
+
+        stderr_lines = []
+        next_log_pct = 10
+
+        progress = Progress(
+            TextColumn('   '),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            disable=not get_console().is_terminal,
+            transient=True)
+
+        with progress:
+            task = progress.add_task('skani search', total=num_queries)
+
+            proc = subprocess.Popen(cmd,
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.PIPE,
+                                    encoding='utf-8')
+            for line in proc.stderr:
+                stderr_lines.append(line)
+
+                m = SKANI_QUERIES_PROCESSED_RE.search(line)
+                if not m:
+                    continue
+
+                processed = int(m.group(1))
+                progress.update(task, completed=processed)
+
+                pct = 100 * processed / num_queries
+                if pct >= next_log_pct:
+                    self.log.info(f'   - processed {processed:,} of {num_queries:,} query genomes ({pct:.0f}%)')
+                    next_log_pct = 10 * (int(pct) // 10 + 1)
+
+            proc.wait()
+            progress.update(task, completed=num_queries)
+
+        return proc.returncode, ''.join(stderr_lines)
 
     @staticmethod
     def get_version() -> str:
@@ -282,21 +347,17 @@ class Skani():
             self.log.info(' - calculating ANI and AF between reference and query genomes')
             results_file = os.path.join(output_dir, 'skani_query_vs_ref.tsv')
             cmd = ['skani', 'search',
-                    '-t', str(self.cpus), 
+                    '-t', str(self.cpus),
                     '-d', sketch_dir,
                     '--ql', query_path_file,
                     '-o', results_file,
                     '--min-af', str(min_af),
                     '-s', str(min_sketch_ani),
                     '--short-header']
-            proc = subprocess.Popen(cmd,
-                                        stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE,
-                                        encoding='utf-8')
-            _stdout, stderr = proc.communicate()
-            if proc.returncode != 0:  # skani returned an error code
+            returncode, stderr = self._run_with_query_progress(cmd, len(query_paths))
+            if returncode != 0:  # skani returned an error code
                 print(stderr)
-                raise ANIError(f"skani search exited with code {proc.returncode}.")
+                raise ANIError(f"skani search exited with code {returncode}.")
         except Exception as e:
             print(e)
             raise
